@@ -1,6 +1,6 @@
 // Turns raw PayPal dispute JSON + store data into what the UI shows.
 import { scenarioByKey, STORE } from "./store/catalog.js";
-import { getSubmission, auditFor } from "./db.js";
+import { getSubmission, auditFor, latestAnalysis } from "./db.js";
 import { linkRels } from "./paypal/client.js";
 import { isResolved, isActionable, sellerHasActed } from "./disputes.js";
 
@@ -22,6 +22,8 @@ export const REASON_LABELS = {
 /** One plain-language phase per dispute, so the seller knows what to do. */
 export function phaseOf(d, submission) {
   if (isResolved(d)) return { key: "RESOLVED", label: "Resolved" };
+  if (submission?.status === "pending") return { key: "SUBMITTING", label: "Sending to PayPal…" };
+  if (submission?.status === "unknown") return { key: "SUBMITTING", label: "Confirming with PayPal…" };
   if (submission) return { key: "SUBMITTED", label: submission.action === "accept_claim" ? "Refund sent" : "Evidence submitted" };
   if (isActionable(d)) return { key: "ACTION_NEEDED", label: "Your response needed" };
   if (sellerHasActed(d)) return { key: "SUBMITTED", label: "Evidence submitted" };
@@ -63,8 +65,22 @@ export function toRow(row) {
     outcome: d.dispute_outcome?.outcome_code ?? null,
     createdAt: d.create_time ?? row.created_at,
     updatedAt: d.update_time ?? row.synced_at,
-    ai: null,
+    image: sc?.thumb ?? sc?.records.find((r) => r.type === "listing")?.data.images?.[0] ?? null,
+    ai: aiSummary(latestAnalysis(row.id)),
   };
+}
+
+function aiSummary(a) {
+  if (!a) return null;
+  const p = JSON.parse(a.payload);
+  return { recommendation: p.recommendation, band: p.confidence_band, ev: p.ev.fight, guardOk: p.guard.ok, injection: p.injection_detected, provider: a.provider };
+}
+
+/** Full analysis for the case view. */
+export function analysisView(a) {
+  if (!a) return null;
+  const p = JSON.parse(a.payload);
+  return { id: a.id, createdAt: a.created_at, provider: a.provider, model: a.model, fallback: a.fallback, latencyMs: a.latency_ms, ...p };
 }
 
 export function toCase(row) {
@@ -79,6 +95,7 @@ export function toCase(row) {
     allowedResponses: d.allowed_response_options ?? null,
     transaction: d.disputed_transactions?.[0] ?? null,
     submission: getSubmission(row.id),
+    analysis: analysisView(latestAnalysis(row.id)),
     audit: auditFor(row.id),
     paypal: { status: d.status, stage: d.dispute_life_cycle_stage, channel: d.dispute_channel, outcome: d.dispute_outcome ?? null, links: linkRels(d) },
   };

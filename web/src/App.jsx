@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, money } from "./api.js";
+import { api } from "./api.js";
+import { Icon, money } from "./ui.jsx";
 import Inbox from "./Inbox.jsx";
-import CaseDrawer from "./CaseDrawer.jsx";
+import CaseSheet from "./CaseSheet.jsx";
 import PasscodeDialog from "./PasscodeDialog.jsx";
 
 const POLL_MS = 10_000;
+const FILTERS = [
+  { key: "all", label: "All", match: () => true },
+  { key: "todo", label: "Needs response", match: (r) => r.phase === "ACTION_NEEDED" },
+  { key: "done", label: "Responded", match: (r) => ["SUBMITTING", "SUBMITTED", "RESOLVED"].includes(r.phase) },
+];
 
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [session, setSession] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [askPasscode, setAskPasscode] = useState(null); // pending action to retry after login
-  const [notice, setNotice] = useState(null);
-  // Stable identity: CaseDrawer's effect depends on it, so a new function per render would restart its polling.
-  const closeCase = useCallback(() => setSelected(null), []);
-
+  const [filter, setFilter] = useState("all");
+  const [askPasscode, setAskPasscode] = useState(null);
+  const [toast, setToast] = useState(null);
   const alive = useRef(true);
+
   const load = useCallback(async () => {
     try {
       const d = await api.disputes();
@@ -28,98 +34,116 @@ export default function App() {
   useEffect(() => {
     alive.current = true;
     load();
+    api.session().then((s) => alive.current && setSession(s)).catch(() => {});
     const t = setInterval(load, POLL_MS);
     return () => { alive.current = false; clearInterval(t); };
   }, [load]);
 
-  // Runs a write action; if the server wants the passcode, ask once and retry.
-  const withAuth = useCallback(async (fn) => {
-    try { return await fn(); }
-    catch (e) {
-      if (e.needsPasscode) { setAskPasscode(() => fn); return null; }
-      setNotice({ kind: "error", text: e.message });
-      return null;
-    }
-  }, []);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /** Run a write; if the server wants the passcode, ask once and retry. Resolves null if cancelled. */
+  const runWrite = useCallback((fn) => new Promise((resolve, reject) => {
+    const attempt = () => fn().then(resolve, (e) => {
+      if (e.needsPasscode) setAskPasscode({ retry: attempt, cancel: () => resolve(null) });
+      else reject(e);
+    });
+    attempt();
+  }), []);
 
   const reset = async () => {
-    const r = await withAuth(api.reset);
-    if (r) {
+    try {
+      const r = await runWrite(api.reset);
+      if (!r) return;
       setSelected(null);
-      const kept = r.carried?.length ? ` Kept ${r.carried.length} you hadn't touched yet.` : "";
-      setNotice({
-        kind: r.changed ? "ok" : "info",
-        text: r.changed
-          ? `Loaded ${r.picked.length} fresh sandbox dispute(s).${kept}`
-          : r.refilling
-            ? "No fresh disputes in reserve yet. New ones are being created in PayPal (about 5 minutes)."
-            : "No fresh disputes in reserve right now. The inbox is unchanged.",
-      });
+      setToast(r.changed ? `Loaded ${r.picked.length} fresh dispute${r.picked.length === 1 ? "" : "s"} from the PayPal sandbox.` : r.refilling ? "Fresh disputes are being created in PayPal. About 5 minutes." : "No fresh disputes in reserve right now.");
       load();
-    }
+    } catch (e) { setToast(e.message); }
   };
 
+  const closeCase = useCallback(() => setSelected(null), []);
   const rows = useMemo(() => data?.rows ?? [], [data]);
-  const kpi = useMemo(() => ({
-    atRisk: rows.reduce((s, r) => s + r.atRisk, 0),
-    needsResponse: rows.filter((r) => r.phase === "ACTION_NEEDED").length,
-    submitted: rows.filter((r) => r.phase === "SUBMITTED" || r.phase === "RESOLVED").length,
-    poolReady: (data?.pool ?? []).reduce((s, p) => s + p.ready, 0),
-  }), [rows, data]);
+  const shown = useMemo(() => rows.filter(FILTERS.find((f) => f.key === filter).match), [rows, filter]);
+  const stats = useMemo(() => {
+    const open = rows.filter((r) => r.phase !== "RESOLVED");
+    return {
+      atRisk: open.reduce((s, r) => s + r.atRisk, 0),
+      recover: open.filter((r) => r.ai?.recommendation === "FIGHT" && r.ai.ev > 0).reduce((s, r) => s + r.ai.ev, 0),
+      todo: rows.filter((r) => r.phase === "ACTION_NEEDED").length,
+      verified: rows.filter((r) => r.ai?.guardOk).length,
+    };
+  }, [rows]);
+  const aiLabel = session?.ai?.provider === "openai" ? `GPT-5.6 Luna` : "Demo AI";
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z" fill="currentColor" /><path d="m11 16 3.5 3.5L21.5 12" stroke="var(--brand-ink)" strokeWidth="3" fill="none" strokeLinecap="round" /></svg>
-          <div>
-            <div className="brand-name">Dispute Defender</div>
-            <div className="brand-sub">Juniper &amp; Oak Goods · PayPal Sandbox</div>
+    <>
+      <nav className="nav" aria-label="Main">
+        <div className="nav-inner">
+          <div className="brand">
+            <span className="brand-mark"><Icon name="shield" size={15} stroke={2.2} /></span>
+            Dispute Defender
+          </div>
+          <div className="nav-spacer" />
+          <span className="nav-meta" title={data?.sync?.lastError ?? ""}>
+            <span className={`dot ${data?.sync?.lastError ? "warn" : ""}`} />
+            <span className="label">{data?.sync?.lastError ? "PayPal sync issue" : "Live from PayPal Sandbox"}</span>
+          </span>
+          <button className="btn btn-secondary" onClick={reset} title="Swap in a fresh set of sandbox disputes">
+            <Icon name="refresh" size={14} /> Reset demo
+          </button>
+        </div>
+      </nav>
+
+      <main className="page">
+        <header className="hero">
+          <div className="eyebrow"><Icon name="sparkle" size={15} /> AI dispute agent for PayPal sellers</div>
+          <h1>Fight the chargebacks worth fighting. <span className="soft">Refund the rest.</span></h1>
+          <p>Every dispute is read, checked against your own records, and answered with a draft you approve. Nothing reaches PayPal without your click.</p>
+        </header>
+
+        <section className="stats" aria-label="Summary">
+          <Stat value={money(stats.atRisk)} label="At risk" />
+          <Stat value={money(stats.recover)} label="Expected recovery" green />
+          <Stat value={stats.todo} label="Need your response" />
+          <Stat value={`${stats.verified}/${rows.length}`} label={`Drafts fact-checked · ${aiLabel}`} />
+        </section>
+
+        <div className="toolbar">
+          <h2 className="section-title">Disputes</h2>
+          <div className="segmented" role="group" aria-label="Filter disputes">
+            {FILTERS.map((f) => (
+              <button key={f.key} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
+                {f.label}<span className="count">{rows.filter(f.match).length}</span>
+              </button>
+            ))}
           </div>
         </div>
-        <div className="topbar-right">
-          <span className="sync" title={data?.sync?.lastError ?? ""}>
-            {data?.sync?.lastError ? "⚠ PayPal sync error" : data?.sync?.lastSyncAt ? `Synced ${new Date(data.sync.lastSyncAt).toLocaleTimeString()}` : "Connecting…"}
-          </span>
-          <button className="btn ghost" onClick={reset} title="Swap in a fresh set of sandbox disputes">Reset demo</button>
-        </div>
-      </header>
 
-      <section className="kpis">
-        <Kpi label="Money at risk" value={money(kpi.atRisk)} accent />
-        <Kpi label="Need your response" value={kpi.needsResponse} />
-        <Kpi label="Responded" value={kpi.submitted} />
-        <Kpi label="Fresh disputes in reserve" value={kpi.poolReady} hint={data?.refilling ? "refilling…" : null} />
-      </section>
-
-      {notice && (
-        <div className={`notice ${notice.kind}`} role="status">
-          {notice.text}
-          <button className="link" onClick={() => setNotice(null)}>Dismiss</button>
-        </div>
-      )}
-      {error && <div className="notice error">Can't reach the server: {error}</div>}
-
-      <main className="main">
-        <Inbox rows={rows} loading={!data} onOpen={setSelected} selectedId={selected} />
+        {error && <div className="block" role="alert" style={{ marginBottom: 14, color: "var(--red)" }}>Can't reach the server: {error}</div>}
+        <Inbox rows={shown} loading={!data} onOpen={setSelected} selectedId={selected} filtered={filter !== "all"} />
+        <p className="footer-note">PayPal Sandbox · {aiLabel}{session?.ai?.provider !== "openai" ? " (deterministic mock: add an OpenAI key on the server for GPT-5.6 Luna)" : ""}</p>
       </main>
 
-      {selected && <CaseDrawer id={selected} onClose={closeCase} />}
+      {selected && <CaseSheet id={selected} onClose={closeCase} runWrite={runWrite} onChanged={load} notify={setToast} />}
       {askPasscode && (
         <PasscodeDialog
-          onCancel={() => setAskPasscode(null)}
-          onSuccess={async () => { const fn = askPasscode; setAskPasscode(null); const r = await withAuth(fn); if (r) { load(); setNotice({ kind: "ok", text: "Done." }); } }}
+          onCancel={() => { askPasscode.cancel(); setAskPasscode(null); }}
+          onSuccess={() => { const { retry } = askPasscode; setAskPasscode(null); retry(); }}
         />
       )}
-    </div>
+      {toast && <div className="toast" role="status">{toast}<button onClick={() => setToast(null)} aria-label="Dismiss"><Icon name="x" size={14} /></button></div>}
+    </>
   );
 }
 
-function Kpi({ label, value, accent, hint }) {
+function Stat({ value, label, green }) {
   return (
-    <div className={`kpi ${accent ? "accent" : ""}`}>
-      <div className="kpi-value">{value}</div>
-      <div className="kpi-label">{label}{hint && <span className="kpi-hint"> · {hint}</span>}</div>
+    <div className="stat">
+      <div className={`stat-value ${green ? "green" : ""}`}>{value}</div>
+      <div className="stat-label">{label}</div>
     </div>
   );
 }
