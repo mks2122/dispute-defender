@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: dispute-defender
+    runtime: node
+    plan: starter            # free tier sleeps after 15 min idle (~50s cold start for judges)
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEMO_PASSCODE
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DB_PATH
+        value: /tmp/dispute-defender.db   # cache only; rebuilt from PayPal on boot

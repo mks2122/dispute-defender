@@ -1,0 +1,38 @@
+{
+  "name": "dispute-defender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI agent that fights PayPal chargebacks for small sellers (PayPal AI Hackathon)",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --watch server/index.js",
+    "dev:web": "vite web",
+    "build": "vite build web",
+    "start": "node server/index.js",
+    "start:local": "node --env-file=.env server/index.js",
+    "seed": "node --env-file=.env server/paypal/seed.js",
+    "lint": "eslint .",
+    "test": "node --test --no-warnings \"tests/unit/**/*.test.js\"",
+    "check": "npm run lint && npm run build && npm test",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "ag-grid-community": "^33.3.2",
+    "ag-grid-react": "^33.3.2",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.14.0"
+  }
+}
