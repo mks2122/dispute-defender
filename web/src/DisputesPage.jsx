@@ -30,11 +30,12 @@ const theme = themeQuartz.withParams({
 
 const PHASE_ORDER = { ACTION_NEEDED: 0, SUBMITTING: 1, PROCESSING: 2, SUBMITTED: 3, RESOLVED: 4 };
 
-const OrderCell = ({ data }) => (
+// The order name is a real button so rows can be opened from the keyboard (Tab + Enter).
+const OrderCell = ({ data, context }) => (
   <div className="cell-order">
     <Thumb src={data.image} />
     <div className="cell-stack">
-      <div className="cell-title">{data.item}</div>
+      <button className="cell-title link-btn" onClick={(e) => { e.stopPropagation(); context.onOpen(data.id); }}>{data.item}</button>
       <div className="cell-sub">{data.buyer}{data.tags.includes("agent purchase") && <span className="badge">AI agent</span>}</div>
     </div>
   </div>
@@ -97,6 +98,7 @@ export default function DisputesPage({ title, rows, preset, loading, onOpen, sel
                 columnDefs={columnDefs}
                 defaultColDef={{ sortable: true, resizable: false, suppressMovable: true, cellDataType: false }}
                 getRowId={(p) => p.data.id}
+                context={{ onOpen }}
                 loading={loading}
                 onRowClicked={(e) => onOpen(e.data.id)}
                 rowClass="clickable"

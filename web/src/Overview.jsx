@@ -10,6 +10,7 @@ export default function Overview({ rows, loading, onOpen }) {
     const byReason = {};
     for (const r of open) byReason[r.reasonLabel] = (byReason[r.reasonLabel] ?? 0) + r.atRisk;
     return {
+      open: open.length,
       atRisk: open.reduce((s, r) => s + r.atRisk, 0),
       recover: open.filter((r) => NEEDS(r) && r.ai?.recommendation === "FIGHT" && r.ai.ev > 0).reduce((s, r) => s + r.ai.ev, 0),
       needs: rows.filter(NEEDS),
@@ -37,7 +38,7 @@ export default function Overview({ rows, loading, onOpen }) {
       </div>
 
       <section className="kpis" aria-label="Key figures">
-        <Kpi label="At risk" value={money(m.atRisk)} sub={`${rows.length} open dispute${rows.length === 1 ? "" : "s"}`} />
+        <Kpi label="At risk" value={money(m.atRisk)} sub={`${m.open} open dispute${m.open === 1 ? "" : "s"}`} />
         <Kpi label="Expected recovery" value={money(Math.round(m.recover * 100) / 100)} sub="if you fight the recommended ones" />
         <Kpi label="Needs response" value={m.needs.length} sub="before PayPal's deadline" />
         <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="every fact traced to a record" />
@@ -120,9 +121,10 @@ function Kpi({ label, value, sub }) {
 
 function RecentActivity({ onOpen }) {
   const [items, setItems] = useState(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
-    const load = () => api.activity().then((d) => alive && setItems(d.items)).catch(() => alive && setItems([]));
+    const load = () => api.activity().then((d) => { if (alive) { setItems(d.items); setFailed(false); } }).catch(() => alive && setFailed(true));
     load();
     const t = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(t); };
@@ -130,13 +132,14 @@ function RecentActivity({ onOpen }) {
   return (
     <section className="card">
       <div className="card-head"><h3>Recent activity</h3><a className="hint" href="#/activity">View all</a></div>
-      {!items ? <div className="card-body"><div className="skeleton" style={{ height: 80 }} /></div>
+      {failed && !items ? <div className="card-body muted">Couldn't load activity. Retrying…</div>
+        : !items ? <div className="card-body"><div className="skeleton" style={{ height: 80 }} /></div>
         : items.length === 0 ? <div className="empty">No activity yet.</div> : (
           <ul className="feed">
             {items.slice(0, 6).map((a, i) => (
               <li key={i}>
                 <span className="tick" />
-                <span style={{ minWidth: 0 }}>{a.label} · <button className="btn-ghost" style={{ border: 0, background: "none", padding: 0, color: "var(--text)", fontWeight: 500 }} onClick={() => onOpen(a.disputeId)}>{a.item}</button></span>
+                <span style={{ minWidth: 0 }}>{a.label} · <button className="link-btn" onClick={() => onOpen(a.disputeId)}>{a.item}</button></span>
                 <time dateTime={a.at}>{timeAgo(a.at)}</time>
               </li>
             ))}

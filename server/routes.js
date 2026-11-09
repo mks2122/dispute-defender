@@ -39,7 +39,7 @@ api.get("/disputes", (_req, res) => {
     pool: poolSummary(),
     refilling: isRefilling(),
     sync: syncStatus(),
-    ai: { provider: aiProviderName() },
+    ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "Demo AI model" },
   });
 });
 

@@ -29,6 +29,7 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [askPasscode, setAskPasscode] = useState(null);
+  const askingRef = useRef(false);
   const [toast, setToast] = useState(null);
   const alive = useRef(true);
 
@@ -46,8 +47,10 @@ export default function App() {
     load();
     const t = setInterval(load, POLL_MS);
     const onHash = () => { setPage(pageFromHash()); setMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setMenuOpen(false); };
     window.addEventListener("hashchange", onHash);
-    return () => { alive.current = false; clearInterval(t); window.removeEventListener("hashchange", onHash); };
+    window.addEventListener("keydown", onKey);
+    return () => { alive.current = false; clearInterval(t); window.removeEventListener("hashchange", onHash); window.removeEventListener("keydown", onKey); };
   }, [load]);
 
   useEffect(() => {
@@ -58,9 +61,15 @@ export default function App() {
 
   /** Run a write; if the server wants the passcode, ask once and retry. Resolves null if cancelled. */
   const runWrite = useCallback((fn) => new Promise((resolve, reject) => {
+    if (askingRef.current) { reject(new Error("Enter the passcode for the action already waiting first.")); return; }
     const attempt = () => fn().then(resolve, (e) => {
-      if (e.needsPasscode) setAskPasscode({ retry: attempt, cancel: () => resolve(null) });
-      else reject(e);
+      if (e.needsPasscode) {
+        askingRef.current = true;
+        setAskPasscode({
+          retry: () => { askingRef.current = false; attempt(); },
+          cancel: () => { askingRef.current = false; resolve(null); },
+        });
+      } else reject(e);
     });
     attempt();
   }), []);
@@ -96,7 +105,7 @@ export default function App() {
         <NavLink id="settings" page={page} />
         <div className="sidebar-foot">
           <div className="env-row" title={syncOk ? "Synced with PayPal" : data?.sync?.lastError}><span className={`dot ${syncOk ? "dot-live" : "dot-off"}`} /><span className="env-text">PayPal Sandbox</span></div>
-          <div className="env-row"><Icon name="bot" size={14} /><span className="env-text">{data?.ai?.provider === "openai" ? "GPT-5.6 Luna" : "Demo AI model"}</span></div>
+          <div className="env-row"><Icon name="bot" size={14} /><span className="env-text">{data?.ai?.provider === "openai" ? data.ai.model : "Demo AI model"}</span></div>
         </div>
       </aside>
 

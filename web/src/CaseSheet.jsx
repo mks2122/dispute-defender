@@ -3,16 +3,18 @@ import { api } from "./api.js";
 import { Icon, Status, Thumb, Badge, money, signedMoney, dueLabel, bandWord } from "./ui.jsx";
 
 const MAX_NOTES = 2000;
+const REFUND_NOTE = "We accept this claim and are refunding the buyer in full.";
 
 export default function CaseSheet({ id, onClose, runWrite, onChanged, notify }) {
   const [c, setC] = useState(null);
   const [error, setError] = useState(null);
   const alive = useRef(true);
+  const closeRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
       const d = await api.dispute(id);
-      if (alive.current) { setC(d); setError(null); }
+      if (alive.current && d.id === id) { setC(d); setError(null); } // ignore a late reply for a previous dispute
     } catch (e) {
       if (alive.current) setError(e.message);
     }
@@ -27,6 +29,18 @@ export default function CaseSheet({ id, onClose, runWrite, onChanged, notify }) 
     return () => { alive.current = false; clearInterval(t); window.removeEventListener("keydown", onKey); };
   }, [load, onClose]);
 
+  // Modal behaviour: background inert, focus moves in, and returns to the opener on close.
+  useEffect(() => {
+    const opener = document.activeElement;
+    const background = document.querySelectorAll(".shell > .sidebar, .shell > .main");
+    background.forEach((el) => { el.inert = true; });
+    closeRef.current?.focus();
+    return () => {
+      background.forEach((el) => { el.inert = false; });
+      if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
+    };
+  }, []);
+
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -37,7 +51,7 @@ export default function CaseSheet({ id, onClose, runWrite, onChanged, notify }) 
             <div className="sheet-title">{c?.item ?? "Loading…"}</div>
             <div className="small muted">{c ? <>{c.buyer} · {c.reasonLabel}<span className="hide-sm"> · {c.id}</span></> : " "}</div>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button>
+          <button ref={closeRef} className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button>
         </header>
         {error && <div className="sheet-body"><div className="card card-body error-text" role="alert">{error}</div></div>}
         {!c && !error && <div className="sheet-body"><div className="skeleton" style={{ height: 180 }} /><div className="skeleton" style={{ height: 120 }} /></div>}
@@ -50,7 +64,15 @@ export default function CaseSheet({ id, onClose, runWrite, onChanged, notify }) 
 function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   const a = c.analysis;
   const [decision, setDecision] = useState(a?.recommendation ?? "FIGHT");
-  const [notes, setNotes] = useState(a?.draft_notes ?? "");
+  // One draft per decision, so toggling Fight/Refund never throws away the seller's edits.
+  const original = { FIGHT: a?.recommendation === "FIGHT" ? a.draft_notes : "", REFUND: a?.recommendation === "REFUND" ? a.draft_notes : REFUND_NOTE };
+  const [drafts, setDrafts] = useState(original);
+  const notes = drafts[decision];
+  const setNotes = (text) => setDrafts((d) => ({ ...d, [decision]: text }));
+  const edited = drafts.FIGHT !== original.FIGHT || drafts.REFUND !== original.REFUND;
+  const [confirmRerun, setConfirmRerun] = useState(false);
+  const flashTimer = useRef(null);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
   const [check, setCheck] = useState(a ? a.guard : null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(null);
@@ -64,7 +86,6 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
     setDecision(d);
     setConfirming(false);
     setServerErrors(null);
-    setNotes(d === a?.recommendation ? a.draft_notes : d === "REFUND" ? "We accept this claim and are refunding the buyer in full." : a?.draft_notes ?? "");
   };
 
   // Live fact-check of the response as the seller edits it (debounced, cancelled on change/unmount).
@@ -82,7 +103,8 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.classList.add("flash");
-    setTimeout(() => el.classList.remove("flash"), 1600);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => el.classList.remove("flash"), 1600);
   };
 
   const submit = async () => {
@@ -105,6 +127,8 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   };
 
   const rerun = async () => {
+    if (edited && !confirmRerun) { setConfirmRerun(true); return; }
+    setConfirmRerun(false);
     setBusy("analyze");
     try { if (await runWrite(() => api.analyze(c.id))) { await reload(); onChanged(); } }
     catch (e) { notify(e.message); }
@@ -133,7 +157,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           </section>
         )}
 
-        {a ? <Verdict a={a} c={c} onRerun={rerun} busy={busy === "analyze"} /> : <div className="card card-body"><div className="skeleton" style={{ height: 100 }} /><p className="small muted">Analyzing this dispute…</p></div>}
+        {a ? <Verdict a={a} c={c} onRerun={rerun} busy={busy === "analyze"} confirmDiscard={confirmRerun} /> : <div className="card card-body"><div className="skeleton" style={{ height: 100 }} /><p className="small muted">Analyzing this dispute…</p></div>}
 
         {hasWatchouts && (
           <section className="card card-body section">
@@ -208,7 +232,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
             </h4>
             {acted ? <Done c={c} /> : (
               <>
-                <textarea className="editor" value={notes} onChange={(e) => { setNotes(e.target.value); setConfirming(false); setServerErrors(null); }} aria-label="Response to PayPal" spellCheck />
+                <textarea className="editor" placeholder={decision === "FIGHT" ? "Write your case for PayPal. Cite your records, e.g. (SHP-1001)." : "A short note accepting the claim."} value={notes} onChange={(e) => { setNotes(e.target.value); setConfirming(false); setServerErrors(null); }} aria-label="Response to PayPal" spellCheck />
                 <div className="editor-meta">
                   {guardErrors ? <span className="error-text">Fix the issues below before sending</span>
                     : check?.ok ? <span className="guard-ok"><Icon name="check" size={13} /> {check.verified ? `${check.verified} fact${check.verified === 1 ? "" : "s"} verified against your records` : "No unverifiable facts"}</span>
@@ -257,18 +281,18 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   );
 }
 
-function Verdict({ a, c, onRerun, busy }) {
+function Verdict({ a, c, onRerun, busy, confirmDiscard }) {
   const fight = a.recommendation === "FIGHT";
   const pct = Math.round(a.win_probability * 100);
   return (
     <section className="card" aria-label="AI recommendation">
       <div className="verdict-head">
         <div>
-          <div className="verdict-kicker"><Icon name="bot" size={14} /> Recommendation · {a.provider === "openai" ? "GPT-5.6 Luna" : "Demo model"}{a.fallback && <Badge tone="warn" title={`The configured model failed (${a.fallback}); the demo model answered.`}>Fallback</Badge>}</div>
+          <div className="verdict-kicker"><Icon name="bot" size={14} /> Recommendation · {a.provider === "openai" ? a.model : "Demo model"}{a.fallback && <Badge tone="warn" title={`The configured model failed (${a.fallback}); the demo model answered.`}>Fallback</Badge>}</div>
           <div className="verdict-word">{fight ? "Fight this dispute" : "Refund the buyer"}</div>
           <p className="verdict-summary">{a.summary}</p>
         </div>
-        <button className="btn btn-ghost" onClick={onRerun} disabled={busy}><Icon name="refresh" size={14} />{busy ? "Running…" : "Re-run"}</button>
+        <button className="btn btn-ghost" onClick={onRerun} disabled={busy}><Icon name="refresh" size={14} />{busy ? "Running…" : confirmDiscard ? "Discard edits and re-run?" : "Re-run"}</button>
       </div>
       <div className="verdict-grid">
         <div>

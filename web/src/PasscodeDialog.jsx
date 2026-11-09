@@ -9,9 +9,19 @@ export default function PasscodeDialog({ onCancel, onSuccess }) {
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
-    const onKey = (e) => e.key === "Escape" && onCancel();
-    window.addEventListener("keydown", onKey);
-    return () => { mounted.current = false; window.removeEventListener("keydown", onKey); };
+    // Capture phase + stopImmediatePropagation: Esc closes only this dialog, never the case sheet underneath.
+    const onKey = (e) => { if (e.key === "Escape") { e.stopImmediatePropagation(); onCancel(); } };
+    window.addEventListener("keydown", onKey, true);
+    const opener = document.activeElement;
+    // Everything behind the dialog is inert: the sheet if one is open, otherwise the page.
+    const behind = document.querySelector(".sheet") ? [document.querySelector(".sheet")] : [...document.querySelectorAll(".shell > .sidebar, .shell > .main")];
+    behind.forEach((el) => { el.inert = true; });
+    return () => {
+      mounted.current = false;
+      window.removeEventListener("keydown", onKey, true);
+      behind.forEach((el) => { el.inert = false; });
+      if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
+    };
   }, [onCancel]);
 
   const submit = async (e) => {

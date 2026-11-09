@@ -32,8 +32,8 @@ export default function ActivityPage({ onOpen }) {
                 <span className="tick" />
                 <span style={{ minWidth: 0 }}>
                   {a.label} ·{" "}
-                  <button onClick={() => onOpen(a.disputeId)} style={{ border: 0, background: "none", padding: 0, fontWeight: 500, color: "var(--text)" }}>{a.item}</button>
-                  <span className="mono faint" style={{ marginLeft: 8 }}>{a.disputeId}</span>
+                  <button className="link-btn" onClick={() => onOpen(a.disputeId)}>{a.item}</button>
+                  <span className="mono faint hide-sm" style={{ marginLeft: 8 }}>{a.disputeId}</span>
                 </span>
                 <time dateTime={a.at} title={new Date(a.at).toLocaleString()}>{timeAgo(a.at)}</time>
               </li>
