@@ -43,6 +43,16 @@ test("malformed JSON is a 400 with a safe message, never a stack trace", async (
 
 test("inbox endpoint has a stable shape even with no active batch", async () => {
   const d = await (await get("/disputes")).json();
-  assert.deepEqual(Object.keys(d).sort(), ["batch", "batchAt", "pool", "refilling", "rows", "sync"]);
+  assert.deepEqual(Object.keys(d).sort(), ["ai", "batch", "batchAt", "pool", "refilling", "rows", "sync"]);
   assert.deepEqual(d.rows, []);
+});
+
+test("activity and status expose no secrets or payload detail", async () => {
+  const act = await (await get("/activity")).json();
+  assert.ok(Array.isArray(act.items));
+  for (const it of act.items) assert.deepEqual(Object.keys(it).sort(), ["at", "disputeId", "event", "item", "label"]);
+  const st = await (await get("/status")).json();
+  const text = JSON.stringify(st);
+  for (const secret of [process.env.PAYPAL_CLIENT_SECRET, process.env.SESSION_SECRET, process.env.DEMO_PASSCODE]) assert.ok(!text.includes(secret));
+  assert.equal(st.paypal.environment, "Sandbox");
 });

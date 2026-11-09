@@ -1,10 +1,11 @@
 // HTTP layer: validate, call one application function, shape the response. No business logic here.
 import express, { Router } from "express";
 import { config } from "./config.js";
-import { getDisputeRow, disputesInBatch, getMeta, latestAnalysis } from "./db.js";
+import { getDisputeRow, disputesInBatch, getMeta, latestAnalysis, recentActivity } from "./db.js";
+import { scenarioByKey } from "./store/catalog.js";
 import { analyzeDispute, checkDraft } from "./ai/analyze.js";
 import { submitDecision, SubmitError } from "./submit.js";
-import { aiProviderName } from "./config.js";
+import { aiProviderName, isSandbox } from "./config.js";
 import { toRow, toCase } from "./view.js";
 import { activeBatch, poolSummary, resetDemo } from "./pool.js";
 import { isRefilling } from "./paypal/seed.js";
@@ -38,6 +39,39 @@ api.get("/disputes", (_req, res) => {
     pool: poolSummary(),
     refilling: isRefilling(),
     sync: syncStatus(),
+    ai: { provider: aiProviderName() },
+  });
+});
+
+// Activity feed for the dashboard. Only these event names are shown to users.
+const ACTIVITY = {
+  seeded: "Dispute created in the PayPal sandbox",
+  ai_analyzed: "AI analysis completed",
+  evidence_submitted: "Evidence submitted to PayPal",
+  refund_accepted: "Refund sent through PayPal",
+  submit_rejected: "PayPal rejected a response",
+  submit_unconfirmed: "Response sent, awaiting PayPal confirmation",
+  submit_confirmed: "PayPal confirmed the response",
+  submit_not_received: "PayPal did not receive the response",
+};
+api.get("/activity", (_req, res) => {
+  res.json({
+    items: recentActivity(200).filter((a) => ACTIVITY[a.event]).slice(0, 60).map((a) => ({
+      at: a.at, event: a.event, label: ACTIVITY[a.event], disputeId: a.dispute_id, item: scenarioByKey(a.scenario)?.title ?? "Unknown order",
+    })),
+  });
+});
+
+// Environment and health for the Settings page (no secrets: names and states only).
+api.get("/status", (_req, res) => {
+  const provider = aiProviderName();
+  res.json({
+    paypal: { environment: isSandbox() ? "Sandbox" : "Live", merchantId: getMeta("merchant_id") ? `••••${getMeta("merchant_id").slice(-4)}` : null },
+    ai: { provider, model: provider === "openai" ? config.aiModel : "Deterministic demo model", timeCostUsd: config.aiTimeCostUsd },
+    sync: { ...syncStatus(), intervalSec: config.syncIntervalMs / 1000 },
+    pool: poolSummary(),
+    refilling: isRefilling(),
+    writesEnabled: !!config.demoPasscode,
   });
 });
 

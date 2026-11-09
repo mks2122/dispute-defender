@@ -136,6 +136,11 @@ export function audit(disputeId, event, detail) {
 }
 export const countAuditSince = (event, sinceIso) =>
   db.prepare("SELECT COUNT(*) AS n FROM audit WHERE event = ? AND at >= ?").get(event, sinceIso).n;
+/** Dashboard feed: the latest events for disputes still known to the demo (event names only, no detail). */
+export const recentActivity = (limit) => db.prepare(`
+  SELECT a.at, a.event, a.dispute_id, d.scenario FROM audit a
+  JOIN disputes d ON d.id = a.dispute_id
+  WHERE d.batch != 'retired' ORDER BY a.id DESC LIMIT ?`).all(limit);
 /** Seller-facing activity: event names and times only (detail stays server-side). */
 export const auditFor = (id) => db.prepare("SELECT at, event FROM audit WHERE dispute_id = ? ORDER BY id").all(id);
 
