@@ -31,4 +31,6 @@ export const api = {
   analyze: (id) => request("POST", `/disputes/${enc(id)}/analyze`),
   validate: (id, notes, signal) => request("POST", `/disputes/${enc(id)}/validate`, { notes }, { signal }),
   submit: (id, body) => request("POST", `/disputes/${enc(id)}/submit`, body),
+  activity: () => request("GET", "/activity"),
+  status: () => request("GET", "/status"),
 };

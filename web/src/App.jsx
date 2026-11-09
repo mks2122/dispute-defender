@@ -1,24 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
-import { Icon, money } from "./ui.jsx";
-import Inbox from "./Inbox.jsx";
+import { Icon, NEEDS, RESPONDED } from "./ui.jsx";
+import Overview from "./Overview.jsx";
+import DisputesPage from "./DisputesPage.jsx";
+import ActivityPage from "./ActivityPage.jsx";
+import SettingsPage from "./SettingsPage.jsx";
 import CaseSheet from "./CaseSheet.jsx";
 import PasscodeDialog from "./PasscodeDialog.jsx";
 
 const POLL_MS = 10_000;
-const FILTERS = [
-  { key: "all", label: "All", match: () => true },
-  { key: "todo", label: "Needs response", match: (r) => r.phase === "ACTION_NEEDED" },
-  { key: "done", label: "Responded", match: (r) => ["SUBMITTING", "SUBMITTED", "RESOLVED"].includes(r.phase) },
-];
+const PAGES = {
+  overview: { title: "Overview", icon: "overview" },
+  disputes: { title: "All disputes", icon: "list", filter: () => true },
+  needs: { title: "Needs response", icon: "inbox", filter: NEEDS },
+  responded: { title: "Responded", icon: "done", filter: RESPONDED },
+  activity: { title: "Activity", icon: "activity" },
+  settings: { title: "Settings", icon: "settings" },
+};
+const pageFromHash = () => {
+  const p = window.location.hash.replace(/^#\/?/, "");
+  return PAGES[p] ? p : "overview";
+};
 
 export default function App() {
+  const [page, setPage] = useState(pageFromHash);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [session, setSession] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [filter, setFilter] = useState("all");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [askPasscode, setAskPasscode] = useState(null);
+  const askingRef = useRef(false);
   const [toast, setToast] = useState(null);
   const alive = useRef(true);
 
@@ -34,9 +45,12 @@ export default function App() {
   useEffect(() => {
     alive.current = true;
     load();
-    api.session().then((s) => alive.current && setSession(s)).catch(() => {});
     const t = setInterval(load, POLL_MS);
-    return () => { alive.current = false; clearInterval(t); };
+    const onHash = () => { setPage(pageFromHash()); setMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setMenuOpen(false); };
+    window.addEventListener("hashchange", onHash);
+    window.addEventListener("keydown", onKey);
+    return () => { alive.current = false; clearInterval(t); window.removeEventListener("hashchange", onHash); window.removeEventListener("keydown", onKey); };
   }, [load]);
 
   useEffect(() => {
@@ -47,85 +61,70 @@ export default function App() {
 
   /** Run a write; if the server wants the passcode, ask once and retry. Resolves null if cancelled. */
   const runWrite = useCallback((fn) => new Promise((resolve, reject) => {
+    if (askingRef.current) { reject(new Error("Enter the passcode for the action already waiting first.")); return; }
     const attempt = () => fn().then(resolve, (e) => {
-      if (e.needsPasscode) setAskPasscode({ retry: attempt, cancel: () => resolve(null) });
-      else reject(e);
+      if (e.needsPasscode) {
+        askingRef.current = true;
+        setAskPasscode({
+          retry: () => { askingRef.current = false; attempt(); },
+          cancel: () => { askingRef.current = false; resolve(null); },
+        });
+      } else reject(e);
     });
     attempt();
   }), []);
 
-  const reset = async () => {
+  const reset = useCallback(async () => {
     try {
       const r = await runWrite(api.reset);
       if (!r) return;
       setSelected(null);
-      setToast(r.changed ? `Loaded ${r.picked.length} fresh dispute${r.picked.length === 1 ? "" : "s"} from the PayPal sandbox.` : r.refilling ? "Fresh disputes are being created in PayPal. About 5 minutes." : "No fresh disputes in reserve right now.");
+      setToast(r.changed ? `Loaded ${r.picked.length} fresh dispute${r.picked.length === 1 ? "" : "s"} from the PayPal sandbox.` : r.refilling ? "New disputes are being created in PayPal (about 5 minutes)." : "No fresh disputes in reserve right now.");
       load();
     } catch (e) { setToast(e.message); }
-  };
+  }, [runWrite, load]);
 
   const closeCase = useCallback(() => setSelected(null), []);
   const rows = useMemo(() => data?.rows ?? [], [data]);
-  const shown = useMemo(() => rows.filter(FILTERS.find((f) => f.key === filter).match), [rows, filter]);
-  const stats = useMemo(() => {
-    const open = rows.filter((r) => r.phase !== "RESOLVED");
-    return {
-      atRisk: open.reduce((s, r) => s + r.atRisk, 0),
-      recover: open.filter((r) => r.ai?.recommendation === "FIGHT" && r.ai.ev > 0).reduce((s, r) => s + r.ai.ev, 0),
-      todo: rows.filter((r) => r.phase === "ACTION_NEEDED").length,
-      verified: rows.filter((r) => r.ai?.guardOk).length,
-    };
-  }, [rows]);
-  const aiLabel = session?.ai?.provider === "openai" ? `GPT-5.6 Luna` : "Demo AI";
+  const counts = useMemo(() => ({ disputes: rows.length, needs: rows.filter(NEEDS).length, responded: rows.filter(RESPONDED).length }), [rows]);
+  const current = PAGES[page];
+  const syncOk = !data?.sync?.lastError;
 
   return (
-    <>
-      <nav className="nav" aria-label="Main">
-        <div className="nav-inner">
-          <div className="brand">
-            <span className="brand-mark"><Icon name="shield" size={15} stroke={2.2} /></span>
-            Dispute Defender
-          </div>
-          <div className="nav-spacer" />
-          <span className="nav-meta" title={data?.sync?.lastError ?? ""}>
-            <span className={`dot ${data?.sync?.lastError ? "warn" : ""}`} />
-            <span className="label">{data?.sync?.lastError ? "PayPal sync issue" : "Live from PayPal Sandbox"}</span>
-          </span>
-          <button className="btn btn-secondary" onClick={reset} title="Swap in a fresh set of sandbox disputes">
-            <Icon name="refresh" size={14} /> Reset demo
-          </button>
+    <div className="shell">
+      {menuOpen && <div className="scrim" style={{ zIndex: 55 }} onClick={() => setMenuOpen(false)} />}
+      <aside className={`sidebar ${menuOpen ? "open" : ""}`} aria-label="Navigation">
+        <div className="logo"><span className="logo-mark"><Icon name="shield" size={14} stroke={2.2} /></span><span>Dispute Defender</span></div>
+        <NavLink id="overview" page={page} />
+        <div className="nav-group">Disputes</div>
+        <NavLink id="disputes" page={page} count={counts.disputes} />
+        <NavLink id="needs" page={page} count={counts.needs} />
+        <NavLink id="responded" page={page} count={counts.responded} />
+        <div className="nav-group">Workspace</div>
+        <NavLink id="activity" page={page} />
+        <NavLink id="settings" page={page} />
+        <div className="sidebar-foot">
+          <div className="env-row" title={syncOk ? "Synced with PayPal" : data?.sync?.lastError}><span className={`dot ${syncOk ? "dot-live" : "dot-off"}`} /><span className="env-text">PayPal Sandbox</span></div>
+          <div className="env-row"><Icon name="bot" size={14} /><span className="env-text">{data?.ai?.provider === "openai" ? data.ai.model : "Demo AI model"}</span></div>
         </div>
-      </nav>
+      </aside>
 
-      <main className="page">
-        <header className="hero">
-          <div className="eyebrow"><Icon name="sparkle" size={15} /> AI dispute agent for PayPal sellers</div>
-          <h1>Fight the chargebacks worth fighting. <span className="soft">Refund the rest.</span></h1>
-          <p>Every dispute is read, checked against your own records, and answered with a draft you approve. Nothing reaches PayPal without your click.</p>
+      <div className="main">
+        <header className="topbar">
+          <button className="icon-btn menu-btn" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
+          <h1><span className="crumb hide-sm">Juniper &amp; Oak Goods / </span>{current.title}</h1>
+          <span className="spacer" />
+          <button className="btn" onClick={reset} title="Swap in a fresh set of sandbox disputes"><Icon name="refresh" size={14} /><span className="hide-sm">Reset demo</span></button>
         </header>
 
-        <section className="stats" aria-label="Summary">
-          <Stat value={money(stats.atRisk)} label="At risk" />
-          <Stat value={money(stats.recover)} label="Expected recovery" green />
-          <Stat value={stats.todo} label="Need your response" />
-          <Stat value={`${stats.verified}/${rows.length}`} label={`Drafts fact-checked · ${aiLabel}`} />
-        </section>
-
-        <div className="toolbar">
-          <h2 className="section-title">Disputes</h2>
-          <div className="segmented" role="group" aria-label="Filter disputes">
-            {FILTERS.map((f) => (
-              <button key={f.key} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
-                {f.label}<span className="count">{rows.filter(f.match).length}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {error && <div className="block" role="alert" style={{ marginBottom: 14, color: "var(--red)" }}>Can't reach the server: {error}</div>}
-        <Inbox rows={shown} loading={!data} onOpen={setSelected} selectedId={selected} filtered={filter !== "all"} />
-        <p className="footer-note">PayPal Sandbox · {aiLabel}{session?.ai?.provider !== "openai" ? " (deterministic mock: add an OpenAI key on the server for GPT-5.6 Luna)" : ""}</p>
-      </main>
+        <main className="content">
+          {error && <div className="card card-body error-text" role="alert">Can't reach the server: {error}</div>}
+          {page === "overview" && <Overview rows={rows} loading={!data} onOpen={setSelected} />}
+          {current.filter && <DisputesPage key={page} title={current.title} rows={rows} preset={current.filter} loading={!data} onOpen={setSelected} selectedId={selected} />}
+          {page === "activity" && <ActivityPage onOpen={setSelected} />}
+          {page === "settings" && <SettingsPage onReset={reset} />}
+        </main>
+      </div>
 
       {selected && <CaseSheet id={selected} onClose={closeCase} runWrite={runWrite} onChanged={load} notify={setToast} />}
       {askPasscode && (
@@ -135,15 +134,15 @@ export default function App() {
         />
       )}
       {toast && <div className="toast" role="status">{toast}<button onClick={() => setToast(null)} aria-label="Dismiss"><Icon name="x" size={14} /></button></div>}
-    </>
+    </div>
   );
 }
 
-function Stat({ value, label, green }) {
+function NavLink({ id, page, count }) {
+  const p = PAGES[id];
   return (
-    <div className="stat">
-      <div className={`stat-value ${green ? "green" : ""}`}>{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
+    <a className="nav-item" href={`#/${id}`} aria-current={page === id ? "page" : undefined} title={p.title}>
+      <Icon name={p.icon} size={16} /><span className="label">{p.title}</span>{count != null && <span className="count">{count}</span>}
+    </a>
   );
 }
