@@ -110,11 +110,18 @@ export const getSubmission = (id) => db.prepare("SELECT * FROM submissions WHERE
 /** Atomically claim the right to act on a dispute. Returns false if a submission already exists. */
 export const claimSubmission = (disputeId, action, analysisId) =>
   db.prepare("INSERT OR IGNORE INTO submissions (dispute_id, action, at, status, analysis_id) VALUES (?, ?, ?, 'pending', ?)").run(disputeId, action, now(), analysisId ?? null).changes === 1;
-export const finishSubmission = (disputeId, status, result) =>
-  db.prepare("UPDATE submissions SET status = ?, result = ?, at = ? WHERE dispute_id = ?").run(status, result == null ? null : JSON.stringify(result), now(), disputeId);
+/** Record the outcome of a claimed submission. Throws if the claim vanished (that would mean a logic bug). */
+export function finishSubmission(disputeId, status, result) {
+  const r = db.prepare("UPDATE submissions SET status = ?, result = ?, at = ? WHERE dispute_id = ?").run(status, result == null ? null : JSON.stringify(result), now(), disputeId);
+  if (r.changes !== 1) throw new Error(`submission claim for ${disputeId} disappeared before it was recorded`);
+}
 /** Release a claim when PayPal definitively did NOT act (so the seller can try again). */
 export const releaseSubmission = (disputeId) => db.prepare("DELETE FROM submissions WHERE dispute_id = ?").run(disputeId);
-export const unknownSubmissions = (olderThanIso) => db.prepare("SELECT * FROM submissions WHERE status IN ('unknown', 'pending') AND at < ?").all(olderThanIso);
+/** Sent-but-unconfirmed submissions older than the given time. `pending` (in flight) is never returned. */
+export const unknownSubmissions = (olderThanIso) => db.prepare("SELECT * FROM submissions WHERE status = 'unknown' AND at < ?").all(olderThanIso);
+/** A `pending` claim this old means the process died mid-submit: we can't know if PayPal acted. */
+export const markStalePendingUnknown = (olderThanIso) =>
+  db.prepare("UPDATE submissions SET status = 'unknown' WHERE status = 'pending' AND at < ?").run(olderThanIso).changes;
 
 // ---------- analyses ----------
 export function saveAnalysis({ disputeId, provider, model, fallback, latencyMs, usage, payload }) {

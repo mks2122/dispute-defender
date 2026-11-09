@@ -3,36 +3,32 @@ export class ApiError extends Error {
     super(body?.error ?? `Request failed (${status})`);
     this.status = status;
     this.needsPasscode = !!body?.needsPasscode;
+    this.errors = body?.errors ?? null;
+    this.issue = body?.issue ?? null;
   }
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, { signal } = {}) {
   const res = await fetch(`/api${path}`, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data);
-  return data;
+  return { ...data, httpStatus: res.status };
 }
 
+const enc = encodeURIComponent;
 export const api = {
   disputes: () => request("GET", "/disputes"),
-  dispute: (id) => request("GET", `/disputes/${encodeURIComponent(id)}`),
+  dispute: (id) => request("GET", `/disputes/${enc(id)}`),
   session: () => request("GET", "/session"),
   login: (passcode) => request("POST", "/session", { passcode }),
   reset: () => request("POST", "/admin/reset"),
+  analyze: (id) => request("POST", `/disputes/${enc(id)}/analyze`),
+  validate: (id, notes, signal) => request("POST", `/disputes/${enc(id)}/validate`, { notes }, { signal }),
+  submit: (id, body) => request("POST", `/disputes/${enc(id)}/submit`, body),
 };
-
-export const money = (n, cur = "USD") =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: cur, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
-
-export function dueLabel(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const days = Math.ceil((d - Date.now()) / 864e5);
-  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return { date, days, text: days < 0 ? `${date} · overdue` : `${date} · ${days}d left` };
-}

@@ -1,6 +1,8 @@
 // The approval gate (ARCHITECTURE §5.5): the only path that changes a dispute in PayPal.
 // Order of operations matters: claim (UNIQUE row) → re-read dispute → act only on a live link → record.
-import { getDisputeRow, upsertDispute, latestAnalysis, claimSubmission, finishSubmission, releaseSubmission, unknownSubmissions, audit } from "./db.js";
+import { getDisputeRow, upsertDispute, latestAnalysis, claimSubmission, finishSubmission, releaseSubmission, unknownSubmissions, markStalePendingUnknown, audit } from "./db.js";
+
+const RECONCILE_AFTER_MS = 10 * 60_000;
 import { getDispute, linkRels, provideEvidence, acceptClaim, PayPalError } from "./paypal/client.js";
 import { checkDraft, buildInput } from "./ai/analyze.js";
 import { renderPdf } from "./evidence/pdf.js";
@@ -47,7 +49,7 @@ export function buildPacket(dispute, records, notes, analysis) {
 export async function submitDecision(disputeId, { decision, notes, analysisId }) {
   const row = getDisputeRow(disputeId);
   if (!row || row.batch === "retired") throw new SubmitError(404, "Dispute not found in this demo.");
-  if (!ACTION[decision]) throw new SubmitError(400, "Choose FIGHT or REFUND.");
+  if (typeof decision !== "string" || !Object.hasOwn(ACTION, decision)) throw new SubmitError(400, "Choose FIGHT or REFUND.");
   const text = typeof notes === "string" ? notes.trim() : "";
   if (!text) throw new SubmitError(400, "Add a response before submitting.");
   if (text.length > MAX_NOTES) throw new SubmitError(400, `The response is ${text.length} characters; PayPal allows ${MAX_NOTES}.`);
@@ -55,10 +57,9 @@ export async function submitDecision(disputeId, { decision, notes, analysisId })
   if (!analysisRow || analysisRow.id !== Number(analysisId)) throw new SubmitError(409, "The analysis changed since you opened this dispute. Review the latest one and try again.");
   const analysis = JSON.parse(analysisRow.payload);
 
-  if (decision === "FIGHT") {
-    const guard = checkDraft(row, text, analysis);
-    if (!guard.ok) throw new SubmitError(422, "Some facts in the response couldn't be verified against your records.", { errors: guard.errors });
-  }
+  // Every note that goes to PayPal is fact-checked, including a refund's acceptance note.
+  const guard = checkDraft(row, text, analysis);
+  if (!guard.ok) throw new SubmitError(422, "Some facts in the response couldn't be verified against your records.", { errors: guard.errors });
 
   const action = ACTION[decision];
   if (!claimSubmission(disputeId, action, analysisRow.id)) throw new SubmitError(409, "A response for this dispute was already sent.");
@@ -106,7 +107,12 @@ export async function submitDecision(disputeId, { decision, notes, analysisId })
  * it was done; if it's still waiting with no seller evidence, nothing happened and the seller may retry.
  */
 export async function reconcileSubmissions() {
-  const stale = unknownSubmissions(new Date(Date.now() - 60_000).toISOString());
+  // In-flight submits can legitimately take minutes (GET retries + action timeout); never touch them.
+  // A `pending` row older than the window can only come from a crash mid-submit, so it becomes `unknown`.
+  const cutoff = new Date(Date.now() - RECONCILE_AFTER_MS).toISOString();
+  markStalePendingUnknown(cutoff);
+  // Release only after PayPal has had ample time to apply a late-processed request.
+  const stale = unknownSubmissions(cutoff);
   for (const s of stale) {
     try {
       const d = await getDispute(s.dispute_id);

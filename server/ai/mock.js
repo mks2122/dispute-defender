@@ -39,7 +39,7 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
       reasoning.push({ point: `The purchase was made by the buyer's AI agent and meets every term of the mandate the buyer signed.`, source_ids: mandate.checks[0].source_ids });
     } else {
       recommendation = "REFUND"; p = 0.05;
-      const failed = mandate.checks.filter((c) => !c.ok).map((c) => c.label.toLowerCase());
+      const failed = mandate.checks.filter((c) => !c.ok).map((c) => c.detail);
       reasoning.push({ point: `The AI agent went beyond the buyer's mandate (${failed.join(", ")}), so the buyer did not authorise this purchase.`, source_ids: mandate.checks[0].source_ids });
     }
   } else if (dispute.reason === "UNAUTHORISED") {

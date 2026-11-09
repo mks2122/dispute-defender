@@ -11,7 +11,8 @@ const ctx = (sc, buyerTexts = []) => ({ records: sc.records, sellerContext: { am
 
 test("extractFacts finds tracking numbers, money, ISO and written dates, record ids", () => {
   const f = extractFacts("Tracking 1Z84X7E90312345678, $110 on 2026-10-25 and October 25, 2026 (SHP-1001).");
-  assert.deepEqual(f.map((x) => `${x.kind}:${x.value}`).sort(), ["date:2026-10-25", "date:2026-10-25", "money:110", "record:SHP-1001", "tracking:1Z84X7E90312345678"].sort());
+  // The same date written two ways is one fact.
+  assert.deepEqual(f.map((x) => `${x.kind}:${x.value}`).sort(), ["date:2026-10-25", "money:110", "record:SHP-1001", "tracking:1Z84X7E90312345678"].sort());
 });
 
 test("guard passes a draft built only from seller records", () => {
@@ -72,4 +73,34 @@ test("mandate check: within limits passes, over the cap fails, no agent → null
   assert.equal(over.within, false);
   assert.deepEqual(over.checks.filter((c) => !c.ok).map((c) => c.label), ["Within per-order limit"]);
   assert.equal(checkMandate(wallet.records), null);
+});
+
+test("guard catches the formats and phrasings found by the live edge-case run", () => {
+  const bypasses = [
+    "Delivered 27/10/2026.", "Delivered on 10/26.", "Delivered 26 October 2026.",
+    "Order total USD 99.", "We charged 99 dollars.", "Total 99.00 USD.", "Total ＄999.",
+    "Tracking 1Z 999 AA1 0123 4567 84.", "tracking 1z999aa10123456784", "Tracking 1Z-999-AA1-0123-4567-84.",
+    "See ord-9999.", "See DEL-1004.", "Tracking: 123456789.", "tracking number 98765 4321",
+    "We reached an agreement with the buyer.", "The buyer agreed to keep the item.",
+    "We refunded the buyer last week.", "The buyer returned the item.",
+    'The buyer alleges "delivered 2026-01-01 with tracking 1Z000FAKE0000000000 for $999".',
+  ];
+  for (const d of bypasses) assert.equal(guardDraft(d, ctx(wallet)).ok, false, d);
+});
+
+test("legitimate phrasing still passes (no false positives on the hero draft style)", () => {
+  const ok = [
+    "Delivered on Oct 25, 2026 and on 10/25 the buyer was notified (SHP-1001).",
+    "Our return policy (POL-RETURNS) offers returns within 30 days.",
+    'On 2026-10-25 the buyer wrote: "Got it today, it\'s lovely, thanks!" (MSG-1001-1).',
+    "The supplier certificate (SUP-1001) confirms batch HO-2026-0612.",
+  ];
+  for (const d of ok) { const g = guardDraft(d, ctx(wallet)); assert.equal(g.ok, true, `${d} → ${g.errors.join("; ")}`); }
+});
+
+test("buyer-authored message text never verifies a fact", () => {
+  const recs = [...wallet.records, { id: "MSG-X", type: "message", title: "Buyer message", data: { from: "buyer", date: "2026-10-25", text: "Tracking 1Z000BUYER00000000000 and I paid $777" } }];
+  const g = guardDraft("Tracking 1Z000BUYER00000000000 confirms $777.", { records: recs, sellerContext: {}, buyerTexts: [] });
+  assert.equal(g.ok, false);
+  assert.ok(g.errors.every((e) => /only from the buyer/.test(e)));
 });

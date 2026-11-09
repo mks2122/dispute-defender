@@ -10,10 +10,14 @@ function wrap(text, width = WRAP) {
   const out = [];
   for (const para of String(text).split(/\r?\n/)) {
     let line = "";
-    for (const word of para.split(/\s+/)) {
-      if (!word) continue;
-      if ((line + " " + word).trim().length > width) { if (line) out.push(line); line = word.length > width ? word.slice(0, width) : word; }
-      else line = (line + " " + word).trim();
+    for (const raw of para.split(/\s+/)) {
+      if (!raw) continue;
+      // Long tokens (URLs, ids) are split across lines, never truncated.
+      const pieces = raw.match(new RegExp(`.{1,${width}}`, "g"));
+      for (const word of pieces) {
+        if ((line + " " + word).trim().length > width) { if (line) out.push(line); line = word; }
+        else line = (line + " " + word).trim();
+      }
     }
     out.push(line);
   }

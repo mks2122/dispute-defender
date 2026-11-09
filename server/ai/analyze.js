@@ -7,7 +7,7 @@ import { scenarioByKey } from "../store/catalog.js";
 import { validateAnalysis } from "./schema.js";
 import { guardDraft, expectedValue, bandFor } from "./guard.js";
 import { checkMandate } from "./mandate.js";
-import { factIndex, unverifiedBuyerClaims, detectInjection } from "./facts.js";
+import { factIndex, unverifiedBuyerClaims, detectInjection, splitRecords } from "./facts.js";
 import { mockAnalyze } from "./mock.js";
 import { openaiAnalyze } from "./openai.js";
 import { log } from "../log.js";
@@ -17,11 +17,12 @@ import { mapLimit } from "../util.js";
 export function buildInput(row) {
   const dispute = JSON.parse(row.raw);
   const records = scenarioByKey(row.scenario)?.records ?? [];
+  const { sellerFacts, buyerTexts: loggedBuyerTexts } = splitRecords(records);
   const buyerTexts = [
     ...(dispute.evidences ?? []).filter((e) => e.source === "SUBMITTED_BY_BUYER" && e.notes).map((e) => e.notes),
-    ...records.filter((r) => r.data?.from === "buyer" && r.data.text && r.data.untrusted_attachment).map((r) => r.data.text),
+    ...loggedBuyerTexts,
   ];
-  const sellerIdx = factIndex(records);
+  const sellerIdx = factIndex(sellerFacts);
   const imagePaths = [
     ...records.filter((r) => r.type === "listing").flatMap((r) => (r.data.images ?? []).map((path) => ({ path, label: `seller listing photo (${r.id})`, trusted: true }))),
     ...records.filter((r) => r.data?.packing_photo).map((r) => ({ path: r.data.packing_photo, label: `seller packing photo (${r.id})`, trusted: true })),
@@ -45,6 +46,8 @@ export const sellerContext = (dispute) => ({
   amount: dispute.dispute_amount?.value,
   seller_transaction_id: dispute.disputed_transactions?.[0]?.seller_transaction_id,
 });
+
+const usd = (n) => `${n < 0 ? "-" : ""}${Math.abs(n).toFixed(2)}`;
 
 const citedIds = (a) => [...a.reasoning, ...a.evidence, ...a.contradictions].flatMap((x) => x.source_ids);
 
@@ -95,8 +98,8 @@ async function doAnalyze(disputeId) {
   const warnings = [];
   // Fighting with a negative expected value wastes the seller's time; refunding a case the records say the buyer
   // is right about is honest even when a long-shot fight would "pay" on paper, so that only gets a note.
-  if (a.recommendation === "FIGHT" && ev.fight <= 0) warnings.push(`Fighting is expected to cost more than it recovers ($${ev.fight}). Consider refunding.`);
-  if (a.recommendation === "REFUND" && ev.fight > 0) warnings.push(`A long-shot fight is worth $${ev.fight} on paper, but your records support the buyer, so refunding is the honest choice.`);
+  if (a.recommendation === "FIGHT" && ev.fight <= 0) warnings.push(`Fighting is expected to cost more than it recovers (${usd(ev.fight)}). Consider refunding.`);
+  if (a.recommendation === "REFUND" && ev.fight > 0) warnings.push(`A long-shot fight is worth ${usd(ev.fight)} on paper, but your records support the buyer, so refunding is the honest choice.`);
   if (a.recommendation === "FIGHT" && a.evidence.some((x) => x.status === "missing")) warnings.push("Some evidence PayPal usually needs is missing.");
   if (a.confidence_band !== bandFor(a.win_probability)) warnings.push("The model's confidence band doesn't match its probability; showing the band computed from the probability.");
 

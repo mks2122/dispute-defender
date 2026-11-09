@@ -61,6 +61,7 @@ api.post("/disputes/:id/validate", (req, res) => {
   const row = getDisputeRow(req.params.id);
   if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
   if (typeof req.body?.notes !== "string") return res.status(400).json({ error: "notes must be a string." });
+  if (req.body.notes.length > 4000) return res.status(400).json({ error: "The response is far over PayPal's 2,000-character limit." });
   const a = latestAnalysis(row.id);
   res.json(checkDraft(row, req.body.notes, a ? JSON.parse(a.payload) : null));
 });

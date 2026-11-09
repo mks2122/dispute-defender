@@ -114,3 +114,24 @@ test("renderPdf produces a structurally valid PDF and escapes hostile text", () 
   assert.match(s, /\/Count [2-9]/); // long body spans pages
   assert.match(s, /\\\(c\\\)/);
 });
+
+test("in-flight (pending) claims are never released by reconcile; stale ones become unknown first", async () => {
+  db.prepare("INSERT INTO submissions (dispute_id, action, at, status) VALUES (?, 'provide_evidence', ?, 'pending')").run(current.dispute_id, new Date().toISOString());
+  fakePayPal({ state: () => current });
+  await reconcileSubmissions();
+  assert.equal(getSubmission(current.dispute_id).status, "pending");
+  db.prepare("UPDATE submissions SET at = '2000-01-01T00:00:00Z' WHERE dispute_id = ?").run(current.dispute_id);
+  await reconcileSubmissions(); // stale pending → unknown → (still WAITING, no seller evidence) released
+  assert.equal(getSubmission(current.dispute_id), null);
+});
+
+test("decision must be a plain string (no array coercion)", async () => {
+  fakePayPal({ state: () => current });
+  await assert.rejects(submitDecision(current.dispute_id, { decision: ["FIGHT"], notes: draft(), analysisId: analysisId() }), { status: 400 });
+});
+
+test("refund notes are fact-checked too", async () => {
+  const calls = fakePayPal({ state: () => current });
+  await assert.rejects(submitDecision(current.dispute_id, { decision: "REFUND", notes: "We already refunded $999 last week.", analysisId: analysisId() }), { status: 422 });
+  assert.equal(calls.length, 0);
+});

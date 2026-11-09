@@ -65,7 +65,7 @@ export function toRow(row) {
     outcome: d.dispute_outcome?.outcome_code ?? null,
     createdAt: d.create_time ?? row.created_at,
     updatedAt: d.update_time ?? row.synced_at,
-    image: sc?.records.find((r) => r.type === "listing")?.data.images?.[0] ?? null,
+    image: sc?.thumb ?? sc?.records.find((r) => r.type === "listing")?.data.images?.[0] ?? null,
     ai: aiSummary(latestAnalysis(row.id)),
   };
 }

@@ -1,23 +1,23 @@
 # Architecture: Dispute Defender
 
-Status: milestone 1 is implemented. Sections marked **(M2)** or **(M3)** are designed and not yet built.
+Status: milestones 1 and 2 are implemented (inbox, seeding, AI analysis, guard, approve and submit). Sections marked **(M3)** are designed and not yet built.
 Owner: planner. Changes to boundaries or invariants in this document need a reviewer pass.
 
 ## 1. What the system does
 A seller-side agent for PayPal disputes. It does five things:
 1. Pulls the merchant's disputes from the PayPal Disputes API.
 2. Joins each dispute to the seller's own records: listing, order, shipment, messages, AI-agent mandates.
-3. Asks an LLM (OpenAI GPT-5.6 Luna) for a structured, cited assessment **(M2)**.
-4. Checks the model's draft against those records **(M2)**.
-5. Submits evidence or accepts the claim through PayPal, **but only after the seller approves (M2).**
+3. Asks an LLM (OpenAI GPT-5.6 Luna) for a structured, cited assessment.
+4. Checks the model's draft against those records.
+5. Submits evidence or accepts the claim through PayPal, **but only after the seller approves.**
 
 ## 2. Context
 ```
                 ┌──────────────────────────── Dispute Defender (one Node process) ───────────────────────────┐
  Seller ──HTTPS─▶ web (React + AG Grid, static) ──/api──▶ routes ─┬─▶ view ───────┐                          │
  (browser)      │                                                  ├─▶ pool ───────┤                          │
-                │                                                  ├─▶ ai/* (M2) ──┼─▶ OpenAI API (Luna)      │
-                │                                                  └─▶ submit (M2) ┤                          │
+                │                                                  ├─▶ ai/* ──┼─▶ OpenAI API (Luna)      │
+                │                                                  └─▶ submit ┤                          │
                 │                 sync loop (30s) ─────────────────────────────────┼─▶ paypal/client ─▶ PayPal REST (sandbox)
                 │                 seed / refill ───────────────────────────────────┘        ▲                │
                 │                                                   db (SQLite cache) ◀─────┘ store/catalog  │
@@ -32,7 +32,7 @@ A seller-side agent for PayPal disputes. It does five things:
 | Seller records (listing, order, shipment, messages, mandates) | **`server/store/catalog.js`** (committed) | — |
 | Which disputes the inbox shows (batch / pool / retired) | Local `disputes.batch` | Can be rebuilt from PayPal (§6) |
 | What the seller approved and submitted | Local `submissions` (UNIQUE per dispute) plus PayPal `evidences[]` | — |
-| AI analyses and drafts **(M2)** | Local `analyses` | Can be regenerated |
+| AI analyses and drafts | Local `analyses` | Can be regenerated |
 
 **Invariant:** losing the SQLite file loses nothing that matters. On a fresh boot, sync rebuilds the pool and the inbox from PayPal plus the catalog. Render keeps the DB in `/tmp` on purpose.
 
@@ -42,8 +42,8 @@ Server modules form layers, and **dependencies only point downward**:
 | Layer | Modules | May import | Responsibility |
 |---|---|---|---|
 | HTTP | `index.js`, `routes.js`, `auth.js` | everything below | Routing, auth, error shape, security headers, shutdown |
-| Application | `pool.js`, `sync.js`, `view.js`, `ai/*` (M2), `submit.js` (M2) | integration and data layers | Batch, pool and reset rules, sync state machine, view models, AI orchestration, the approval gate |
-| Integration | `paypal/client.js`, `paypal/seed.js`, `ai/openai.js` (M2) | data layer | All network I/O to PayPal and OpenAI (timeouts, retries, error types), plus sandbox seeding |
+| Application | `pool.js`, `sync.js`, `view.js`, `ai/*`, `submit.js` | integration and data layers | Batch, pool and reset rules, sync state machine, view models, AI orchestration, the approval gate |
+| Integration | `paypal/client.js`, `paypal/seed.js`, `ai/openai.js` | data layer | All network I/O to PayPal and OpenAI (timeouts, retries, error types), plus sandbox seeding |
 | Data | `db.js`, `disputes.js` (pure predicates), `util.js`, `log.js`, `config.js`, `store/catalog.js` | nothing above | Persistence, locks, shared predicates, logging, configuration, static seller data |
 
 Rules, with the check that enforces each:
@@ -91,25 +91,61 @@ Rules, with the check that enforces each:
 - the evidence types PayPal requested;
 - the audit trail.
 
-### 5.4 Analysis (M2)
-`POST /api/disputes/:id/analyze` → `ai/analyze.js` builds the prompt:
-- TRUSTED: the seller records, each with its id.
-- UNTRUSTED: the buyer claims, the buyer messages, and text inside buyer images.
-- the evidence checklist for the reason.
+### 5.4 Analysis
+**When it runs.** Sync auto-analyses every inbox dispute that has no analysis yet. `POST /api/disputes/:id/analyze` re-runs it and needs auth, because a real model costs money.
 
-Luna returns structured output (JSON schema, §8). `ai/guard.js` then checks it:
-- every number, date, id and amount in `draft_notes` must match a seller record;
-- anything sourced only from a buyer can appear only as "buyer alleges…".
+**Input** (`ai/analyze.js#buildInput`, `ai/prompt.js`):
+- TRUSTED:
+  - seller records, each with its id;
+  - for logged buyer messages, only their id, date and attachment metadata;
+  - code-computed checks: the AI-agent mandate check (`ai/mandate.js`), unverified buyer claims and the injection flag (`ai/facts.js`).
+- UNTRUSTED:
+  - the buyer's PayPal notes;
+  - the text of every buyer message, sanitized so it can't close our delimiters;
+  - buyer photos, labelled untrusted.
+- Buyer text never enters the system prompt.
 
-If the check fails, approval is blocked. The analysis is stored. A cached hero analysis is the fallback when the model is unavailable.
+**Provider** (`config.aiProviderName`):
+- `openai` when `OPENAI_API_KEY` is set (`ai/openai.js`): GPT-5.6 Luna, strict JSON schema, images as data URLs.
+- Otherwise `mock` (`ai/mock.js`): deterministic, generic rules over the records, with the same output contract.
+- If the real model fails (timeout after one retry, refusal, malformed JSON, schema violation, model unavailable), **the mock stands in** and the reason is stored in `analyses.fallback`.
 
-### 5.5 Approve and submit (M2)
-`POST /api/disputes/:id/submit {draftId, approvedHash}` requires auth, then:
-1. Insert a `submissions` row. The UNIQUE constraint wins any double click or second tab.
-2. Re-GET the dispute and pick the action **from its live links only**:
-   - FIGHT → `provide-evidence` (multipart: notes ≤2000 characters, carrier from PayPal's enum, evidence type chosen per reason, one store document).
-   - REFUND → `accept-claim` `{accept_claim_type: "REFUND"}`.
-3. Dispute actions are **never retried automatically**. A timeout is recorded as "unknown". The UI then re-GETs the dispute (its `evidences[]` show `SUBMITTED_BY_SELLER`) before it offers another attempt.
+**Post-processing:**
+- Validate against the schema (`ai/schema.js`).
+- Recompute the confidence band from the probability.
+- Compute EV.
+- Run the guard (§7).
+- Merge code-detected injection and unverified claims.
+- Add warnings, for example "FIGHT with a negative EV".
+
+The result is stored in `analyses`, and the call is audited (provider, model, latency, token usage; never the prompt).
+
+`POST /api/disputes/:id/validate {notes}` re-runs the guard on the seller's edited text. It is pure and needs no auth, and notes are capped at 4,000 characters.
+
+### 5.5 Approve and submit
+`POST /api/disputes/:id/submit {decision: "FIGHT"|"REFUND", notes, analysisId}` requires auth. `submit.js` then:
+1. Validates: `decision` is a string key, the notes are 1–2,000 characters, and `analysisId` is the **latest** analysis (409 otherwise). The guard runs on the notes for both decisions (422 + `errors[]`).
+2. Atomically **claims** the dispute with `INSERT OR IGNORE` into `submissions` (status `pending`). A second claim gets 409.
+3. Re-GETs the dispute and acts **only on a live link**: `provide_evidence` or `accept_claim`. If the link is missing, or the GET fails, the claim is released before anything is sent.
+4. Sends:
+   - FIGHT → `provide-evidence`, multipart. The evidence types are verified in the sandbox:
+
+     | Situation | Evidence type |
+     |---|---|
+     | UNAUTHORISED | `DETAILS_OF_PURCHASE` |
+     | Shipment with a tracking number and a carrier PayPal recognises | `PROOF_OF_FULFILLMENT` + tracking |
+     | Anything else | `OTHER` |
+
+     The generated PDF evidence packet is attached (`evidence/pdf.js`).
+   - REFUND → `accept-claim` `{note, accept_claim_type: "REFUND"}`.
+5. Records the outcome:
+   - 2xx → `done`.
+   - PayPal 4xx → claim released (nothing happened, so the seller may retry).
+   - Timeout, 5xx or network error → `unknown`, **never resent**.
+6. Sync's `reconcileSubmissions` handles `unknown` rows once they are 10 minutes old:
+   - If the dispute shows seller evidence, or is no longer waiting, it marks them `done`.
+   - Otherwise it releases them.
+   - A `pending` row is never touched unless it is older than 10 minutes, which can only happen after a crash. It then becomes `unknown`.
 
 ## 6. State machines
 
@@ -140,21 +176,37 @@ seed ─▶ pool ──(WAITING, no submission)──▶ <active batch> ──(n
 | Boundary | Threat | Control |
 |---|---|---|
 | Browser → `/api` writes | Anyone who has the public URL | Passcode → HMAC-signed, HttpOnly, SameSite=Lax cookie, Secure in prod. Login limited to 10 attempts per IP per 15 min. Reset has a persisted cooldown, checked and set synchronously, so concurrent requests can't interleave. |
-| Buyer text (PayPal notes, messages, image text) | Prompt injection, faked facts, XSS | Kept in the UNTRUSTED prompt section. The guard rejects buyer-only facts. React escapes all text (`dangerouslySetInnerHTML` is banned). |
+| Buyer text (PayPal notes, messages, image text) | Prompt injection, faked facts, XSS | Kept in the UNTRUSTED prompt section, with delimiters sanitized. Code-side injection detection. The guard never lets buyer-authored text verify a fact (§8). React escapes all text (`dangerouslySetInnerHTML` is banned). |
 | Secrets (PayPal, OpenAI, session) | Leaking into logs, responses or the client bundle | Env only. `PayPalError` never holds the response body. Error responses are generic (500, or 502 + PayPal debug id), and body-parser errors stay inside the API router's handler. `npm test` scans committable files and the bundle. |
 | PayPal API | Rate limits, 5xx, token expiry | Token cache keyed by `expires_in`, a single 401 refresh, backoff on 429/5xx **for GETs and idempotent creates only**, a 25 s timeout on every call. |
 | Our own retries | Sending a dispute action twice | No automatic retries on dispute actions, plus the UNIQUE submission row. |
 
-## 8. AI contract (M2)
-- Model `AI_MODEL` (default `gpt-5.6-luna`), checked at boot via `/v1/models`. Falls back to text-only, then to the cached analysis.
-- The output schema is strict JSON:
-  ```
-  {reason_assessment, evidence:[{requirement, status, source_ids[]}], contradictions[],
-   win_probability, confidence_band, recommendation: FIGHT|REFUND, partial_refund_suggestion?,
-   draft_notes, citations:[{claim, source_id}]}
-  ```
-- EV(fight) = p · amount − time cost; EV(refund) = 0. The chargeback fee is sunk either way.
-- 30 s timeout, one retry, then "manual review". The model's output is never shown as fact without its citations.
+## 8. AI contract
+**Model.** `AI_MODEL` (default `gpt-5.6-luna`). It is not checked at boot: a `model_not_found` error at call time falls back to the mock (§5.4).
+
+**Output schema** (`ai/schema.js`), strict JSON, validated again on receipt:
+```
+{summary, recommendation: FIGHT|REFUND, win_probability (0..1), confidence_band: low|medium|high,
+ reasoning:[{point, source_ids[]}], evidence:[{requirement, status: have|weak|missing, source_ids[]}],
+ contradictions:[{buyer_claim, seller_fact, source_ids[]}], unverified_buyer_claims[],
+ injection_detected, partial_refund_suggestion (number|null), draft_notes}
+```
+
+**Expected value.** EV(fight) = p · amount − `AI_TIME_COST_USD` (default $10); EV(refund) = 0. The chargeback fee is sunk either way.
+
+**Guard** (`ai/guard.js` + `ai/facts.js`):
+- Text is NFKC-normalised, and Arabic-Indic digits are mapped to ASCII.
+- Facts extracted:
+  - tracking numbers: contiguous, grouped (each group must contain a digit), or anything introduced by the word "tracking";
+  - money: `$`, `€`, `£`, `USD`, `dollars`;
+  - dates: ISO, `/`-separated, `Mon D, YYYY`, `D Mon YYYY`, and year-less `Mon D` and `M/D`;
+  - record ids: known prefixes in any case, or `ABC-1234`.
+- Each fact must match **seller-asserted** data. Buyer message text never verifies a fact.
+- A buyer quote (`The buyer alleges "…"`) is exempt only if it is a genuine substring of the buyer's own words and at most 300 characters.
+- Claims that an agreement, refund, compensation or return happened need a supporting seller record.
+- **Known limit:** names, quantities, times and relative durations are not machine-checked. The seller reviews every draft before sending.
+
+**Timeouts.** OpenAI calls time out after 30 s, with one retry on timeout, 429 or 5xx. The analysis is read-only, so the retry is safe.
 
 ## 9. Deployment
 Render web service (`render.yaml`): `npm ci && npm run build`, then `npm start`, health check at `/api/health`, Node 22, Starter plan (no cold starts during judging). On SIGTERM the server drains requests, clears its timers and closes the DB.
@@ -172,4 +224,4 @@ Render web service (`render.yaml`): `npm ci && npm run build`, then `npm start`,
 
 ## 11. Known tech debt (tracked; fix before M4)
 - The 1.1 MB JS bundle: lazy-load AG Grid or use manual chunks.
-- Product images for the vision check (M3).
+- Product images are illustrations rendered from `scripts/store-images/svgs.mjs` (no real photography).

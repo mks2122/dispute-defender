@@ -8,3 +8,4 @@ scripts/probe-run.log
 tests/edge/*-results.json
 .playwright-mcp/
 tests/edge/*.pdf
+web/public/store-src/
