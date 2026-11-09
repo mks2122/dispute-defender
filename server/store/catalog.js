@@ -75,7 +75,7 @@ export const SCENARIOS = [
     buyer: { name: "Sam Patel", email: "sam.patel@example.com" },
     buyerNote: "My AI shopping agent bought this without my permission. I never approved it.",
     records: [
-      { id: "ORD-1005", type: "order", title: "Order (placed by AI agent)", data: { placed: "2026-10-29", items: [{ sku: "RC-ULT-40", name: "Ultralight backpack rain cover 40L", qty: 1, price: 89 }], placed_by_agent: "ShopPilot v3 (agent id agt_92kd1)", ship_to: "15 Pine Ridge Dr, Boulder, CO 80302" } },
+      { id: "ORD-1005", type: "order", title: "Order (placed by AI agent)", data: { placed: "2026-10-29", items: [{ sku: "RC-ULT-40", name: "Ultralight backpack rain cover 40L", category: "outdoor gear", qty: 1, price: 89 }], placed_by_agent: "ShopPilot v3 (agent id agt_92kd1)", ship_to: "15 Pine Ridge Dr, Boulder, CO 80302" } },
       { id: "MND-1005", type: "agent_mandate", title: "Purchase mandate signed by buyer", data: { agent_id: "agt_92kd1", agent: "ShopPilot v3", principal: "sam.patel@example.com", allowed_categories: ["outdoor gear", "camping"], max_per_order_usd: 150, monthly_cap_usd: 400, valid_from: "2026-10-02", valid_until: "2026-12-31", consent_at: "2026-10-02T14:11:09Z", signature_sha256: "9f2c4e1ab07d5e88c3f1a6b2d94e07c5a1b3f8e2d6c9a4b7e0f1d2c3b4a59687" } },
       { id: "SHP-1005", type: "shipment", title: "Shipment", data: { carrier: "USPS", tracking: "9400111899223857364512", delivered: "2026-11-01", delivered_to: "15 Pine Ridge Dr, Boulder, CO 80302" } },
     ],
@@ -89,7 +89,7 @@ export const SCENARIOS = [
     buyer: { name: "Jordan Lee", email: "jordan.lee@example.com" },
     buyerNote: "My AI agent made this purchase. I never approved spending this much.",
     records: [
-      { id: "ORD-1006", type: "order", title: "Order (placed by AI agent)", data: { placed: "2026-11-02", items: [{ sku: "BNDL-TREK", name: "Carbon trekking poles + GPS watch bundle", qty: 1, price: 310 }], placed_by_agent: "ShopPilot v3 (agent id agt_55pq8)", ship_to: "220 Lakeview Ct, Madison, WI 53703" } },
+      { id: "ORD-1006", type: "order", title: "Order (placed by AI agent)", data: { placed: "2026-11-02", items: [{ sku: "BNDL-TREK", name: "Carbon trekking poles + GPS watch bundle", category: "outdoor gear", qty: 1, price: 310 }], placed_by_agent: "ShopPilot v3 (agent id agt_55pq8)", ship_to: "220 Lakeview Ct, Madison, WI 53703" } },
       { id: "MND-1006", type: "agent_mandate", title: "Purchase mandate signed by buyer", data: { agent_id: "agt_55pq8", agent: "ShopPilot v3", principal: "jordan.lee@example.com", allowed_categories: ["outdoor gear"], max_per_order_usd: 150, monthly_cap_usd: 300, valid_from: "2026-09-15", valid_until: "2027-03-15", consent_at: "2026-09-15T09:42:51Z", signature_sha256: "3b7e2a9c4d1f6e8b0a5c7d2e9f4b1a6c8e3d5f7a2b9c4e1d6f8a3b5c7e9d2f41" } },
       { id: "SHP-1006", type: "shipment", title: "Shipment", data: { carrier: "UPS", tracking: "1Z84X7E90355512345", delivered: "2026-11-05" } },
     ],

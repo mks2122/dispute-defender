@@ -2,7 +2,9 @@
 // active batch from PayPal alone (dispute → capture.custom_id → scenario), so Render redeploys lose nothing.
 import { listAllDisputes, getDispute, getCapture } from "./paypal/client.js";
 import { scenarioFromCustomId } from "./store/catalog.js";
-import { getDisputeRow, upsertDispute, setMeta, getMeta, liveRows } from "./db.js";
+import { getDisputeRow, upsertDispute, setMeta, getMeta, liveRows, disputesInBatch } from "./db.js";
+import { analyzeMissing } from "./ai/analyze.js";
+import { reconcileSubmissions } from "./submit.js";
 import { activeBatch, topUpBatch, retireDeadPoolRows, ensureRefill } from "./pool.js";
 import { isResolved, sellerHasActed, isActionable, ageMs, STUCK_AFTER_MS } from "./disputes.js";
 import { mapLimit } from "./util.js";
@@ -68,6 +70,12 @@ export async function syncOnce() {
 
     // 4. Keep the reserve pool topped up (single-flight across processes, hourly cap).
     ensureRefill();
+
+    // 5. Background work that must never block or fail the sync: confirm unconfirmed submissions,
+    //    then pre-analyse inbox disputes so judges see verdicts without waiting.
+    reconcileSubmissions()
+      .then(() => analyzeMissing(disputesInBatch(top.batch ?? activeBatch() ?? "")))
+      .catch((e) => log.error("sync", "background AI/reconcile step failed", e));
     return { discovered: unknown.length, refreshed: live.length, retired, ms: Date.now() - started, problem: problem || null };
   } catch (e) {
     log.error("sync", "sync failed", e);

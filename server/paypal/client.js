@@ -107,6 +107,24 @@ export async function listAllDisputes({ maxPages = 20 } = {}) {
 
 export const linkRels = (dispute) => (dispute?.links ?? []).map((l) => l.rel);
 
+/**
+ * Submit seller evidence (multipart: `input` JSON + one `evidence-file`). NEVER retried automatically:
+ * a timeout here means "unknown", and the caller reconciles by re-reading the dispute.
+ */
+export function provideEvidence(id, { evidences, file }) {
+  const form = () => {
+    const fd = new FormData();
+    fd.append("input", new Blob([JSON.stringify({ evidences })], { type: "application/json" }));
+    if (file) fd.append("evidence-file", new Blob([file.data], { type: file.type }), file.name);
+    return fd;
+  };
+  return ppRequest("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/provide-evidence`, { form });
+}
+
+/** Accept the claim and refund in full (the only accept type PayPal allows on chargebacks). Never retried. */
+export const acceptClaim = (id, note) =>
+  ppRequest("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/accept-claim`, { json: { note, accept_claim_type: "REFUND" } });
+
 // ---------- Payments ----------
 export const getCapture = (id) => ppRequest("GET", `/v2/payments/captures/${encodeURIComponent(id)}`);
 

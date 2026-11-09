@@ -1,7 +1,10 @@
 // HTTP layer: validate, call one application function, shape the response. No business logic here.
 import express, { Router } from "express";
 import { config } from "./config.js";
-import { getDisputeRow, disputesInBatch, getMeta } from "./db.js";
+import { getDisputeRow, disputesInBatch, getMeta, latestAnalysis } from "./db.js";
+import { analyzeDispute, checkDraft } from "./ai/analyze.js";
+import { submitDecision, SubmitError } from "./submit.js";
+import { aiProviderName } from "./config.js";
 import { toRow, toCase } from "./view.js";
 import { activeBatch, poolSummary, resetDemo } from "./pool.js";
 import { isRefilling } from "./paypal/seed.js";
@@ -23,7 +26,7 @@ const safeRows = (rows) => rows.flatMap((r) => {
 
 api.get("/health", (_req, res) => res.json({ ok: true }));
 
-api.get("/session", (req, res) => res.json({ authed: isAuthed(req), writesEnabled: !!config.demoPasscode }));
+api.get("/session", (req, res) => res.json({ authed: isAuthed(req), writesEnabled: !!config.demoPasscode, ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "mock" } }));
 api.post("/session", loginLimiter, login);
 
 api.get("/disputes", (_req, res) => {
@@ -45,6 +48,30 @@ api.get("/disputes/:id", (req, res) => {
   catch (e) { log.error("view", `unreadable case ${row.id}`, e); res.status(500).json({ error: "This dispute's data is unreadable right now; it refreshes on the next sync." }); }
 });
 
+// Re-run the AI on demand (costs money with a real model, so it needs the passcode).
+api.post("/disputes/:id/analyze", requireAuth, wrap(async (req, res) => {
+  const row = getDisputeRow(req.params.id);
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
+  await analyzeDispute(row.id);
+  res.json(toCase(getDisputeRow(row.id)));
+}));
+
+// Live fact-check of the seller's edited draft. Pure and side-effect free.
+api.post("/disputes/:id/validate", (req, res) => {
+  const row = getDisputeRow(req.params.id);
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
+  if (typeof req.body?.notes !== "string") return res.status(400).json({ error: "notes must be a string." });
+  const a = latestAnalysis(row.id);
+  res.json(checkDraft(row, req.body.notes, a ? JSON.parse(a.payload) : null));
+});
+
+// The approval gate: the only route that changes a dispute in PayPal.
+api.post("/disputes/:id/submit", requireAuth, wrap(async (req, res) => {
+  const { decision, notes, analysisId } = req.body ?? {};
+  const result = await submitDecision(req.params.id, { decision, notes, analysisId });
+  res.status(result.status === "unknown" ? 202 : 200).json({ ...result, dispute: toCase(getDisputeRow(req.params.id)) });
+}));
+
 api.post("/admin/reset", requireAuth, (_req, res) => {
   if (!hasSyncedOnce()) return res.status(503).json({ error: "Still loading disputes from PayPal. Try again in a few seconds." });
   res.json(resetDemo()); // ResetError (429) is mapped by the error handler below
@@ -60,6 +87,7 @@ api.use((_req, res) => res.status(404).json({ error: "Not found." }));
 // Last-resort handler: full detail goes to the server log; clients get a safe message only.
 api.use((err, _req, res, _next) => {
   if (err instanceof URIError || /Failed to decode param/.test(err.message ?? "")) return res.status(404).json({ error: "Not found." });
+  if (err instanceof SubmitError) return res.status(err.status).json({ error: err.message, errors: err.errors, issue: err.issue, debugId: err.debugId });
   if (err.expose && err.status >= 400 && err.status < 500) return res.status(err.status).json({ error: err.message });
   log.error("api", "request failed", err);
   if (err instanceof PayPalError) return res.status(502).json({ error: "PayPal rejected or could not complete the request.", debugId: err.debugId });

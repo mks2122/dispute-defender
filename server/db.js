@@ -25,16 +25,36 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
   CREATE TABLE IF NOT EXISTS locks (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS submissions (
-    dispute_id TEXT PRIMARY KEY,                  -- UNIQUE: one PayPal action per dispute, survives restarts
-    action     TEXT NOT NULL,
-    at         TEXT NOT NULL,
-    result     TEXT
+    dispute_id  TEXT PRIMARY KEY,                 -- UNIQUE: one PayPal action per dispute, survives restarts
+    action      TEXT NOT NULL,                    -- provide_evidence | accept_claim
+    at          TEXT NOT NULL,
+    result      TEXT,
+    status      TEXT NOT NULL DEFAULT 'done',     -- pending | done | unknown (sent, PayPal didn't confirm)
+    analysis_id INTEGER
   );
+  CREATE TABLE IF NOT EXISTS analyses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispute_id  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    provider    TEXT NOT NULL,                    -- openai | mock
+    model       TEXT NOT NULL,
+    fallback    TEXT,                             -- why the mock stood in for the configured model, if it did
+    latency_ms  INTEGER,
+    usage       TEXT,
+    payload     TEXT NOT NULL                     -- validated analysis + guard + EV + mandate (JSON)
+  );
+  CREATE INDEX IF NOT EXISTS analyses_dispute ON analyses(dispute_id, id);
   CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at TEXT NOT NULL, dispute_id TEXT, event TEXT NOT NULL, detail TEXT
   );
 `);
+
+// Idempotent migrations for caches created by earlier versions (CREATE IF NOT EXISTS won't add columns).
+const columns = (table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+const subCols = columns("submissions");
+if (!subCols.has("status")) db.exec("ALTER TABLE submissions ADD COLUMN status TEXT NOT NULL DEFAULT 'done'");
+if (!subCols.has("analysis_id")) db.exec("ALTER TABLE submissions ADD COLUMN analysis_id INTEGER");
 
 const now = () => new Date().toISOString();
 
@@ -87,6 +107,21 @@ export const liveRows = (batch) => db.prepare("SELECT * FROM disputes WHERE batc
 
 // ---------- submissions ----------
 export const getSubmission = (id) => db.prepare("SELECT * FROM submissions WHERE dispute_id = ?").get(id) ?? null;
+/** Atomically claim the right to act on a dispute. Returns false if a submission already exists. */
+export const claimSubmission = (disputeId, action, analysisId) =>
+  db.prepare("INSERT OR IGNORE INTO submissions (dispute_id, action, at, status, analysis_id) VALUES (?, ?, ?, 'pending', ?)").run(disputeId, action, now(), analysisId ?? null).changes === 1;
+export const finishSubmission = (disputeId, status, result) =>
+  db.prepare("UPDATE submissions SET status = ?, result = ?, at = ? WHERE dispute_id = ?").run(status, result == null ? null : JSON.stringify(result), now(), disputeId);
+/** Release a claim when PayPal definitively did NOT act (so the seller can try again). */
+export const releaseSubmission = (disputeId) => db.prepare("DELETE FROM submissions WHERE dispute_id = ?").run(disputeId);
+export const unknownSubmissions = (olderThanIso) => db.prepare("SELECT * FROM submissions WHERE status IN ('unknown', 'pending') AND at < ?").all(olderThanIso);
+
+// ---------- analyses ----------
+export function saveAnalysis({ disputeId, provider, model, fallback, latencyMs, usage, payload }) {
+  return Number(db.prepare("INSERT INTO analyses (dispute_id, created_at, provider, model, fallback, latency_ms, usage, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(disputeId, now(), provider, model, fallback ?? null, latencyMs ?? null, usage == null ? null : JSON.stringify(usage), JSON.stringify(payload)).lastInsertRowid);
+}
+export const latestAnalysis = (disputeId) => db.prepare("SELECT * FROM analyses WHERE dispute_id = ? ORDER BY id DESC LIMIT 1").get(disputeId) ?? null;
 
 // ---------- audit ----------
 export function audit(disputeId, event, detail) {

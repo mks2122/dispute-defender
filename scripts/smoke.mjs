@@ -2,10 +2,11 @@
 const base = process.argv[2] ?? "http://localhost:3000";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Wait for a RECENT sync (the stored timestamp may be left over from a previous server process).
 let data;
-for (let i = 0; i < 20; i++) {
+for (let i = 0; i < 40; i++) {
   data = await fetch(`${base}/api/disputes`).then((r) => r.json()).catch(() => null);
-  if (data?.sync?.lastSyncAt) break;
+  if (data?.sync?.lastSyncAt && Date.now() - Date.parse(data.sync.lastSyncAt) < 60_000) break;
   await sleep(1500);
 }
 if (!data) { console.error("server not reachable"); process.exit(1); }

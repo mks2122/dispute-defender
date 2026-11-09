@@ -23,7 +23,17 @@ export const config = {
   poolPerScenario: num("POOL_PER_SCENARIO", 1),
   resetCooldownMs: num("RESET_COOLDOWN_MS", 120_000),
   maxSeedsPerHour: num("MAX_SEEDS_PER_HOUR", 24),
+  // AI: "auto" uses OpenAI when a key is set, otherwise the deterministic mock (free, offline, demo-safe).
+  openaiKey: process.env.OPENAI_API_KEY || "",
+  openaiBase: process.env.OPENAI_BASE || "https://api.openai.com",
+  aiModel: process.env.AI_MODEL || "gpt-5.6-luna",
+  aiProvider: ["mock", "openai"].includes(process.env.AI_PROVIDER) ? process.env.AI_PROVIDER : "auto",
+  // Seller's time to assemble and submit a response, in dollars; used for expected value.
+  aiTimeCostUsd: num("AI_TIME_COST_USD", 10),
 };
+
+/** Which model actually runs: an explicit choice, else OpenAI if a key is configured, else the mock. */
+export const aiProviderName = () => (config.aiProvider === "auto" ? (config.openaiKey ? "openai" : "mock") : config.aiProvider);
 
 /** Seeding creates real (sandbox) card sales and chargebacks; it must never run against live PayPal. */
 export const isSandbox = () => new URL(config.paypalBase).hostname === "api-m.sandbox.paypal.com";
