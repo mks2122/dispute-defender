@@ -1,5 +1,7 @@
 # Dispute Defender: Build Plan (v2, after the conference-room debate)
 
+> **Status (2026-11-10): all milestones delivered** and merged to `main`. The design moved on in places during the build. **ARCHITECTURE.md is the source of truth**: a neutral dashboard replaced the first UI, polling replaced webhooks, and a deterministic built-in model stands in when no OpenAI key is set. This file is kept as the plan of record.
+
 **Pitch:** Stripe has AI dispute help. PayPal sellers don't. Dispute Defender is an AI agent (OpenAI GPT-5.6 Luna) that reads each PayPal dispute, gathers the seller's evidence, works out whether it's worth fighting, drafts the response, and submits it after the seller approves.
 
 **Deadline:** 2026-11-13 01:30 IST. **Submission target: Nov 12, 20:00 IST.**

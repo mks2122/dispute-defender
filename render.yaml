@@ -15,8 +15,10 @@ services:
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
-      - key: OPENAI_API_KEY
+      - key: OPENAI_API_KEY        # optional: without it the built-in demo model runs
         sync: false
+      - key: AI_MODEL
+        value: gpt-5.6-luna
       - key: DEMO_PASSCODE
         sync: false
       - key: SESSION_SECRET

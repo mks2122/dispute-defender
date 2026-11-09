@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
 import { Icon, NEEDS, RESPONDED } from "./ui.jsx";
 import Overview from "./Overview.jsx";
-import DisputesPage from "./DisputesPage.jsx";
+// AG Grid is large and only the disputes table needs it, so that page loads on first visit.
+const DisputesPage = lazy(() => import("./DisputesPage.jsx"));
 import ActivityPage from "./ActivityPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import CaseSheet from "./CaseSheet.jsx";
@@ -120,7 +121,11 @@ export default function App() {
         <main className="content">
           {error && <div className="card card-body error-text" role="alert">Can't reach the server: {error}</div>}
           {page === "overview" && <Overview rows={rows} loading={!data} onOpen={setSelected} />}
-          {current.filter && <DisputesPage key={page} title={current.title} rows={rows} preset={current.filter} loading={!data} onOpen={setSelected} selectedId={selected} />}
+          {current.filter && (
+            <Suspense fallback={<div className="card card-body"><div className="skeleton" style={{ height: 240 }} /></div>}>
+              <DisputesPage key={page} title={current.title} rows={rows} preset={current.filter} loading={!data} onOpen={setSelected} selectedId={selected} />
+            </Suspense>
+          )}
           {page === "activity" && <ActivityPage onOpen={setSelected} />}
           {page === "settings" && <SettingsPage onReset={reset} />}
         </main>

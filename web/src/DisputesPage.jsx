@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
-import { themeQuartz } from "ag-grid-community";
+import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
 import { Icon, Status, Thumb, money, signedMoney, dueLabel, verdictWord, bandWord } from "./ui.jsx";
+
+// Registered here (not in main.jsx) so AG Grid stays out of the first page load.
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 // Neutral grid theme driven by the app's CSS variables (light and dark follow the system).
 const theme = themeQuartz.withParams({
