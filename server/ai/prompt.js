@@ -18,7 +18,7 @@ Rules:
 6. draft_notes is the seller's response to the PayPal reviewer, in plain text, at most ${Math.floor(MAX_NOTES * 0.9)} characters.
    - State only facts from TRUSTED records, citing record ids in parentheses, e.g. (SHP-1001).
    - Write dates as YYYY-MM-DD and amounts as $110.
-   - Mention the buyer's statements only as: The buyer alleges "..." with their exact words in quotes. Never repeat a tracking number, amount or date that only the buyer gave outside those quotes.
+   - Mention the buyer's statements only as: The buyer alleges "..." with their exact words in quotes, copied from the UNTRUSTED section (log entries are not the buyer's words). Never repeat a tracking number, amount or date that only the buyer gave outside those quotes.
    - Never claim agreements, refunds, returns or messages that are not in the records.
    - If recommending REFUND, draft_notes is a short note accepting the claim.
 7. unverified_buyer_claims: buyer statements that the seller's records do not support.
@@ -45,7 +45,7 @@ export function buildUserPrompt(input) {
 ===== TRUSTED: seller records (cite by id) =====
 ${input.records.filter((r) => !isBuyerAuthored(r)).map((r) => `[${r.id}] ${r.title} (${r.type}): ${JSON.stringify(r.data)}`).join("\n")}
 Logged buyer messages (the log entry, id and date are trusted; the TEXT is the buyer's and appears in the UNTRUSTED section):
-${input.records.filter(isBuyerAuthored).map((r) => `[${r.id}] received ${r.data.date}${r.data.attachment ? ", with a photo" : ""}${r.data.seller_replied === false ? ", seller never replied" : ""}`).join("\n") || "- none"}
+${input.records.filter(isBuyerAuthored).map((r) => `[${r.id}] log entry: date=${r.data.date}; photo_attached=${r.data.attachment ? "yes" : "no"}${r.data.seller_replied === false ? "; seller_replied=no" : ""}`).join("\n") || "- none"}
 
 ===== TRUSTED: checks computed by code =====
 ${input.mandate ? `AI-agent purchase mandate check: ${input.mandate.within ? "PURCHASE WITHIN MANDATE" : "MANDATE EXCEEDED OR MISSING"}\n${lines(input.mandate.checks.map((c) => `${c.ok ? "PASS" : "FAIL"} ${c.label}: ${c.detail} (${c.source_ids.join(", ")})`))}` : "No AI-agent purchase involved."}

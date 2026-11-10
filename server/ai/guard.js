@@ -19,11 +19,13 @@ const ASSERTIONS = [
   { re: /\b(police|fraud(ulent|ster)?|scam(mer)?|criminal|history of (chargebacks|disputes|abuse))\b/i, supported: (s) => /\b(police|fraud|scam|criminal)/i.test(s.all), msg: "accuses the buyer (fraud, police) without anything in your records to back it up" },
   { re: /\b(never|did not|didn't|has not|hasn't|have not|haven't)\s+(contact(ed)?|message[ds]?|e-?mail(ed)?|reach(ed)? out|complain(ed)?|ask(ed)?|request(ed)?|use[ds]?|raise[ds]?)\b/i, supported: (s) => !s.buyerWrote, msg: "says the buyer never got in touch or never asked, but your records log messages from the buyer", negative: true },
 ];
-const NEGATION = /\b(no|not|never|without|nothing|none|neither|nor)\b|n't\b/i;
+const NEGATION = /\b(no|not|never|without|nothing|none|neither|nor)\b|n['’]t\b/i;
+// A denial can also follow the event word: "the refund agreement is not supported by our records".
+const DENIED_AFTER = /\b(not|no|never|unsupported|unfounded|false|contradicted|nothing)\b|n['’]t\b/i;
 
 // Reported speech: "The buyer alleges that a refund was agreed" reports the buyer's claim, it doesn't make it,
 // unless the sentence turns ("..., but we refunded them") before the event word.
-const REPORTED = /\bthe buyer (?:alleges|claims|says|states|asserts|wrote|contends)\b/gi;
+const REPORTED = /\bthe buyer(?:['’]s)? (?:alleges|alleged|claims|claimed|says|said|states|stated|asserts|wrote|contends|cited)\b/gi;
 const TURN = /\b(but|however|although|whereas|yet)\b/i;
 
 /** Does the text make this claim? Denials ("no return was received") and reported buyer claims don't count. */
@@ -33,6 +35,8 @@ function asserts(a, text) {
     if (a.negative) return true;
     const clause = text.slice(Math.max(0, m.index - 40), m.index).split(/[.;!?]\s/).pop();
     if (NEGATION.test(clause)) continue;
+    const after = text.slice(m.index + m[0].length).split(/[.;!?]\s/)[0].slice(0, 120);
+    if (DENIED_AFTER.test(after)) continue;
     const sentence = text.slice(Math.max(0, m.index - 160), m.index).split(/[.;!?]\s/).pop();
     const reported = [...sentence.matchAll(REPORTED)].pop();
     if (reported && !TURN.test(sentence.slice(reported.index))) continue;

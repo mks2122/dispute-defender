@@ -175,3 +175,10 @@ test("reported buyer claims are not the seller's claims, unless the sentence tur
   assert.equal(guardDraft("The buyer alleges that a refund was agreed and that the item was returned, but our message history has no messages with this buyer (MSG-LOG-1007).", ctx(throw_)).ok, true);
   assert.equal(guardDraft("The buyer claims the item was returned, but we refunded them anyway.", ctx(throw_)).ok, false);
 });
+
+test("denials after the event word and possessive reports are not claims", () => {
+  const throw_ = scenarioByKey("injection-note");
+  assert.equal(guardDraft("The buyer’s cited refund agreement and return are not supported by the seller’s records (MSG-LOG-1007).", ctx(throw_)).ok, true);
+  assert.equal(guardDraft("The refund agreement the buyer mentions doesn’t exist in our message log (MSG-LOG-1007).", ctx(throw_)).ok, true);
+  assert.equal(guardDraft("We agreed to a partial refund last week.", ctx(throw_)).ok, false);
+});
