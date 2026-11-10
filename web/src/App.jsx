@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
-import { Icon, NEEDS, RESPONDED } from "./ui.jsx";
+import { Icon, LogoMark, NEEDS, RESPONDED } from "./ui.jsx";
+import { useTheme } from "./theme.js";
 import Overview from "./Overview.jsx";
 // AG Grid is large and only the disputes table needs it, so that page loads on first visit.
 const DisputesPage = lazy(() => import("./DisputesPage.jsx"));
@@ -33,6 +34,7 @@ export default function App() {
   const askingRef = useRef(false);
   const [toast, setToast] = useState(null);
   const alive = useRef(true);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +97,7 @@ export default function App() {
     <div className="shell">
       {menuOpen && <div className="scrim" style={{ zIndex: 55 }} onClick={() => setMenuOpen(false)} />}
       <aside className={`sidebar ${menuOpen ? "open" : ""}`} aria-label="Navigation">
-        <div className="logo"><span className="logo-mark"><Icon name="shield" size={14} stroke={2.2} /></span><span>Dispute Defender</span></div>
+        <div className="logo"><span className="logo-mark"><LogoMark size={17} /></span><span className="logo-word">Dispute Defender</span></div>
         <NavLink id="overview" page={page} />
         <div className="nav-group">Disputes</div>
         <NavLink id="disputes" page={page} count={counts.disputes} />
@@ -115,6 +117,9 @@ export default function App() {
           <button className="icon-btn menu-btn" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
           <h1><span className="crumb hide-sm">Juniper &amp; Oak Goods / </span>{current.title}</h1>
           <span className="spacer" />
+          <button className="icon-btn" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>
+            <Icon name={theme === "dark" ? "sun" : "moon"} />
+          </button>
           <button className="btn" onClick={reset} title="Swap in a fresh set of sandbox disputes"><Icon name="refresh" size={14} /><span className="hide-sm">Reset demo</span></button>
         </header>
 
