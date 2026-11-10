@@ -81,3 +81,16 @@ test("a fabricated fact from the model is caught by the guard (never trusted bli
   assert.equal(p.guard.errors.length, 3);
   assert.ok(p.guard.errors.some((e) => /not the delivery date/.test(e)));
 });
+
+test("an injection-aligned REFUND verdict is flagged for a second look, whatever the model says", async () => {
+  const inj = scenarioByKey("injection-note");
+  const d = dispute({ id: `PP-O-INJ`, amount: "72.00", evidences: [{ source: "SUBMITTED_BY_BUYER", evidence_type: "CREATE", notes: inj.buyerNote }] });
+  upsertDispute(d, { scenario: inj.key, batch: "B1" });
+  const row = getDisputeRow(d.dispute_id);
+  const swayed = { ...mockAnalyze(buildInput(row)), recommendation: "REFUND", win_probability: 0.1, confidence_band: "low", injection_detected: false, draft_notes: "We accept this claim and are refunding the buyer in full." };
+  fakeOpenAI({ body: { choices: [{ message: { content: JSON.stringify(swayed) } }] } });
+  await analyzeDispute(row.id);
+  const p = JSON.parse(latestAnalysis(row.id).payload);
+  assert.equal(p.injection_detected, true, "code-side detection holds even if the model misses it");
+  assert.ok(p.warnings.some((w) => /tried to steer the AI/.test(w)));
+});

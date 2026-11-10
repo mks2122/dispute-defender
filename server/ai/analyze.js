@@ -100,7 +100,11 @@ async function doAnalyze(disputeId) {
   // is right about is honest even when a long-shot fight would "pay" on paper, so that only gets a note.
   if (a.recommendation === "FIGHT" && ev.fight <= 0) warnings.push(`Fighting is expected to cost more than it recovers (${usd(ev.fight)}). Consider refunding.`);
   if (a.recommendation === "REFUND" && ev.fight > 0) warnings.push(`A long-shot fight is worth ${usd(ev.fight)} on paper, but your records support the buyer, so refunding is the honest choice.`);
-  if (a.recommendation === "FIGHT" && a.evidence.some((x) => x.status === "missing")) warnings.push("Some evidence PayPal usually needs is missing.");
+  // Proof of refund only matters after refunding, so it never counts as a gap in a fight.
+  if (a.recommendation === "FIGHT" && a.evidence.some((x) => x.status === "missing" && !/refund/i.test(x.requirement))) warnings.push("Some evidence PayPal usually needs is missing.");
+  // Code-level backstop for prompt injection: an injection that pushes for a refund and a REFUND verdict
+  // together deserve a second look, whatever the model's reasons.
+  if ((a.injection_detected || input.injection) && a.recommendation === "REFUND") warnings.push("The buyer's text tried to steer the AI, and this recommendation is what it asked for. Check that the reasoning stands on your records alone before refunding.");
   if (a.confidence_band !== bandFor(a.win_probability)) warnings.push("The model's confidence band doesn't match its probability; showing the band computed from the probability.");
 
   const payload = {

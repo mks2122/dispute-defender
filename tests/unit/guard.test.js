@@ -161,3 +161,17 @@ test("injection detector catches reworded attempts and leaves ordinary complaint
     "I want a refund, the seam is torn.",
   ]) assert.equal(detectInjection([t]), false, t);
 });
+
+test("denials are not claims: 'no return was received' passes, 'the item was returned' does not", () => {
+  const throw_ = scenarioByKey("injection-note");
+  assert.equal(guardDraft("The shipment record also shows no returned item received (SHP-1007).", ctx(throw_)).ok, true);
+  assert.equal(guardDraft("We never agreed to a refund.", ctx(throw_)).ok, true);
+  assert.equal(guardDraft("The item was returned to us.", ctx(throw_)).ok, false);
+  assert.equal(guardDraft("We agreed to refund the buyer.", ctx(throw_)).ok, false);
+});
+
+test("reported buyer claims are not the seller's claims, unless the sentence turns", () => {
+  const throw_ = scenarioByKey("injection-note");
+  assert.equal(guardDraft("The buyer alleges that a refund was agreed and that the item was returned, but our message history has no messages with this buyer (MSG-LOG-1007).", ctx(throw_)).ok, true);
+  assert.equal(guardDraft("The buyer claims the item was returned, but we refunded them anyway.", ctx(throw_)).ok, false);
+});

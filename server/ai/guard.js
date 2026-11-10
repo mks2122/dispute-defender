@@ -10,14 +10,36 @@ const BUYER_QUOTE = /\bthe buyer (?:alleges|claims|states|says|wrote)\b[^"“]{0
 const squash = (s) => normalizeText(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // Claims that something HAPPENED between buyer and seller. Each needs a seller record that shows it.
+// Negated mentions ("no return was received", "never agreed") deny the event, so they don't count as claims.
 const ASSERTIONS = [
   { re: /\b(agreed|agreement|promised|settled|arranged)\b/i, supported: (s) => /\b(agreed|agreement|promised|settled)\b/i.test(s.sellerMessages), msg: "claims an agreement with the buyer that isn't in your records" },
   { re: /\b(refunded|reimbursed|compensated|credited|issued (a |the )?refund|refund (was|has been|had been) (issued|sent|processed))\b/i, supported: (s) => /refund_issued|"refunds":\[[^\]]/.test(s.all), msg: "claims a refund or compensation was issued, which isn't in your records" },
   { re: /\b(returned|sent (it|the item|them) back|received (it|the item|the return) back|return was received)\b/i, supported: (s) => /"returns_received":\[[^\]]/.test(s.all), msg: "claims the item was returned, which isn't in your records" },
   { re: /\b(phoned|called (us|me|our)|on the phone|admitted|admits|confessed|acknowledged)\b/i, supported: (s) => /\b(phone|call|admit|confess|acknowledg)/i.test(s.all), msg: "describes a call or an admission by the buyer that isn't in your records" },
   { re: /\b(police|fraud(ulent|ster)?|scam(mer)?|criminal|history of (chargebacks|disputes|abuse))\b/i, supported: (s) => /\b(police|fraud|scam|criminal)/i.test(s.all), msg: "accuses the buyer (fraud, police) without anything in your records to back it up" },
-  { re: /\b(never|did not|didn't|has not|hasn't|have not|haven't)\s+(contact(ed)?|message[ds]?|e-?mail(ed)?|reach(ed)? out|complain(ed)?|ask(ed)?|request(ed)?|use[ds]?|raise[ds]?)\b/i, supported: (s) => !s.buyerWrote, msg: "says the buyer never got in touch or never asked, but your records log messages from the buyer" },
+  { re: /\b(never|did not|didn't|has not|hasn't|have not|haven't)\s+(contact(ed)?|message[ds]?|e-?mail(ed)?|reach(ed)? out|complain(ed)?|ask(ed)?|request(ed)?|use[ds]?|raise[ds]?)\b/i, supported: (s) => !s.buyerWrote, msg: "says the buyer never got in touch or never asked, but your records log messages from the buyer", negative: true },
 ];
+const NEGATION = /\b(no|not|never|without|nothing|none|neither|nor)\b|n't\b/i;
+
+// Reported speech: "The buyer alleges that a refund was agreed" reports the buyer's claim, it doesn't make it,
+// unless the sentence turns ("..., but we refunded them") before the event word.
+const REPORTED = /\bthe buyer (?:alleges|claims|says|states|asserts|wrote|contends)\b/gi;
+const TURN = /\b(but|however|although|whereas|yet)\b/i;
+
+/** Does the text make this claim? Denials ("no return was received") and reported buyer claims don't count. */
+function asserts(a, text) {
+  const re = new RegExp(a.re.source, "gi");
+  for (const m of text.matchAll(re)) {
+    if (a.negative) return true;
+    const clause = text.slice(Math.max(0, m.index - 40), m.index).split(/[.;!?]\s/).pop();
+    if (NEGATION.test(clause)) continue;
+    const sentence = text.slice(Math.max(0, m.index - 160), m.index).split(/[.;!?]\s/).pop();
+    const reported = [...sentence.matchAll(REPORTED)].pop();
+    if (reported && !TURN.test(sentence.slice(reported.index))) continue;
+    return true;
+  }
+  return false;
+}
 
 // A date must belong to the event it is attached to: "delivered on X" must be a delivery date in the records.
 const EVENTS = [
@@ -108,7 +130,7 @@ export function guardDraft(notes, { records, sellerContext, buyerTexts = [], cit
       : `“${f.raw}” doesn't match anything in your records.`);
   }
   const support = { sellerMessages: JSON.stringify(records.filter((r) => r.data?.from === "seller")), all: JSON.stringify(sellerFacts), buyerWrote: records.some((r) => r.data?.from === "buyer") };
-  for (const a of ASSERTIONS) if (a.re.test(plain) && !a.supported(support)) errors.push(`The response ${a.msg}.`);
+  for (const a of ASSERTIONS) if (asserts(a, plain) && !a.supported(support)) errors.push(`The response ${a.msg}.`);
   for (const id of citedIds) if (!recordIds.has(id)) errors.push(`The analysis cites ${id}, which is not one of your records.`);
 
   return { ok: errors.length === 0, errors: [...new Set(errors)], verified };
