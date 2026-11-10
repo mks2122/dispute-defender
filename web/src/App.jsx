@@ -49,7 +49,8 @@ export default function App() {
     alive.current = true;
     load();
     const t = setInterval(load, POLL_MS);
-    const onHash = () => { setPage(pageFromHash()); setMenuOpen(false); };
+    // Changing page closes any open dispute, so the sheet never floats over an unrelated page.
+    const onHash = () => { setPage(pageFromHash()); setMenuOpen(false); setSelected(null); };
     const onKey = (e) => { if (e.key === "Escape") setMenuOpen(false); };
     window.addEventListener("hashchange", onHash);
     window.addEventListener("keydown", onKey);

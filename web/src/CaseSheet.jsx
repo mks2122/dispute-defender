@@ -185,7 +185,9 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
             <table className="compare">
               <thead><tr><th>Buyer says</th><th>Your records</th></tr></thead>
               <tbody>
-                {a.contradictions.map((x, i) => <tr key={i}><td>{x.buyer_claim}</td><td>{x.seller_fact}<Cites ids={x.source_ids} onCite={flash} /></td></tr>)}
+                {groupClaims(a.contradictions).map((g) => (
+                  <tr key={g.claim}><td>{g.claim}</td><td>{g.facts.map((f, i) => <div key={i} className="compare-fact">{f.seller_fact}<Cites ids={f.source_ids} onCite={flash} /></div>)}</td></tr>
+                ))}
               </tbody>
             </table>
           </section>
@@ -378,7 +380,7 @@ function Fields({ data, untrusted }) {
       </dl>
       {photos.length > 0 && (
         <div className="photos">
-          {photos.map((p) => <a key={p} href={p} target="_blank" rel="noreferrer" className="photo-wrap"><Photo src={p} />{untrusted && <span className="photo-tag">Buyer photo</span>}</a>)}
+          {photos.map((p, i) => <a key={p} href={p} target="_blank" rel="noreferrer" className="photo-wrap" aria-label={`Open ${untrusted ? "buyer" : "seller"} photo ${i + 1} in a new tab`}><Photo src={p} />{untrusted && <span className="photo-tag">Buyer photo</span>}</a>)}
         </div>
       )}
     </>
@@ -396,4 +398,16 @@ function fmt(v) {
   if (typeof v === "object") return Object.entries(v).map(([k, y]) => `${k}: ${y}`).join(", ");
   if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
+}
+
+/** One row per distinct buyer claim, even if the model listed it once per contradicting record. */
+function groupClaims(list) {
+  const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const groups = new Map();
+  for (const x of list) {
+    const k = key(x.buyer_claim);
+    if (!groups.has(k)) groups.set(k, { claim: x.buyer_claim, facts: [] });
+    groups.get(k).facts.push(x);
+  }
+  return [...groups.values()];
 }

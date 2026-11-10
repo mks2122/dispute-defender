@@ -56,7 +56,8 @@ const ACTIVITY = {
 };
 api.get("/activity", (_req, res) => {
   res.json({
-    items: recentActivity(200).filter((a) => ACTIVITY[a.event]).slice(0, 60).map((a) => ({
+    // Re-runs replace an analysis, so only the latest "AI analysis completed" per dispute is shown.
+    items: recentActivity(200).filter((a, i, all) => ACTIVITY[a.event] && (a.event !== "ai_analyzed" || all.findIndex((b) => b.event === "ai_analyzed" && b.dispute_id === a.dispute_id) === i)).slice(0, 60).map((a) => ({
       at: a.at, event: a.event, label: ACTIVITY[a.event], disputeId: a.dispute_id, item: scenarioByKey(a.scenario)?.title ?? "Unknown order",
     })),
   });
