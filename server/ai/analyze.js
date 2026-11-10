@@ -7,7 +7,7 @@ import { scenarioByKey } from "../store/catalog.js";
 import { validateAnalysis } from "./schema.js";
 import { guardDraft, expectedValue, bandFor } from "./guard.js";
 import { checkMandate } from "./mandate.js";
-import { factIndex, unverifiedBuyerClaims, detectInjection, splitRecords } from "./facts.js";
+import { factIndex, unverifiedBuyerClaims, detectInjection, splitRecords, stripInjectionFromQuotes } from "./facts.js";
 import { mockAnalyze } from "./mock.js";
 import { openaiAnalyze } from "./openai.js";
 import { log } from "../log.js";
@@ -91,7 +91,8 @@ async function doAnalyze(disputeId) {
     out = await runProvider("mock", input);
   }
   const latencyMs = Date.now() - started;
-  const a = out.analysis;
+  // A quoted buyer instruction ("IGNORE ALL PRIOR INSTRUCTIONS…") must never be forwarded to PayPal.
+  const a = { ...out.analysis, draft_notes: stripInjectionFromQuotes(out.analysis.draft_notes) };
   const amount = Number(input.dispute.dispute_amount?.value ?? 0);
   const ev = expectedValue(a.win_probability, amount, config.aiTimeCostUsd);
   const guard = guardDraft(a.draft_notes, { records: input.records, sellerContext: sellerContext(input.dispute), buyerTexts: input.buyerTexts, citedIds: citedIds(a) });

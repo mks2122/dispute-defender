@@ -12,13 +12,20 @@ const MONTH_RE = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\.?";
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (y, m, d) => (m >= 1 && m <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(m)}-${pad(d)}` : null);
 
-/** NFKC + map Arabic-Indic digits, so look-alike characters can't dodge the patterns. */
+/** NFKC, Arabic-Indic digits, and every dash/quote variant mapped to ASCII, so look-alikes can't dodge the patterns. */
 export function normalizeText(text) {
   return String(text ?? "")
     .normalize("NFKC")
     .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660))
-    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0));
+    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"');
 }
+
+const ORDINAL_WORD = "(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|(?:twenty|thirty)[- ]?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth))";
+const MONTH_NAME = "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)";
+const NUMBER_WORD = "(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)";
 
 /** Facts that can be verified against records. Values are normalized for comparison. */
 export function extractFacts(text) {
@@ -70,6 +77,14 @@ export function extractFacts(text) {
     if (readings.length) push("monthday", readings, m[0]);
   }
 
+  // Dates and numbers the patterns can't read are not let through silently: misspelled months
+  // ("Ocotber 26, 2026"), dates in words ("the twenty-sixth of October"), numbers spelled out digit by digit.
+  for (const m of t.matchAll(/\b([A-Za-z]{3,10})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b/g)) {
+    if (!new RegExp(`^${MONTH_RE}$`, "i").test(m[1]) && /^[a-z]+$/i.test(m[1]) && looksLikeMonth(m[1])) push("unreadable", m[0], m[0]);
+  }
+  for (const m of t.matchAll(new RegExp(`\\b(?:the\\s+)?${ORDINAL_WORD}\\s+(?:of\\s+)?${MONTH_NAME}\\b|\\b${MONTH_NAME}\\s+(?:the\\s+)?${ORDINAL_WORD}\\b`, "gi"))) push("unreadable", m[0], m[0]);
+  for (const m of t.matchAll(new RegExp(`\\b${NUMBER_WORD}(?:[\\s,-]+(?:[a-z]\\b[\\s,-]+)?${NUMBER_WORD}){5,}\\b`, "gi"))) push("unreadable", m[0], m[0]);
+
   // A numeric date whose two readings are identical collapses to one value; the same fact found by two
   // patterns (e.g. a tracking number matched both bare and after the word "tracking") counts once.
   const unique = new Map();
@@ -82,10 +97,17 @@ export function extractFacts(text) {
   return [...unique.values()];
 }
 
+/** A word that is probably a misspelled month: shares its first letter and most letters with one. */
+function looksLikeMonth(word) {
+  const w = word.toLowerCase();
+  const names = ["january", "february", "march", "april", "june", "july", "august", "september", "october", "november", "december"];
+  return names.some((n) => n[0] === w[0] && Math.abs(n.length - w.length) <= 2 && [...new Set(w)].filter((c) => n.includes(c)).length >= Math.min(4, new Set(w).size));
+}
+
 /** Everything a fact may be checked against, as normalized sets. */
 export function factIndex(texts) {
   const joined = texts.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n");
-  const idx = { tracking: new Set(), money: new Set(), date: new Set(), monthday: new Set(), record: new Set(), text: joined.toLowerCase() };
+  const idx = { tracking: new Set(), money: new Set(), date: new Set(), monthday: new Set(), record: new Set(), unreadable: new Set(), text: joined.toLowerCase() };
   for (const f of extractFacts(joined)) for (const v of [].concat(f.value)) idx[f.kind].add(f.kind === "money" ? v.toFixed(2) : v);
   // Plain numbers in JSON (e.g. "price": 110, "max_per_order_usd": 150) count as amounts.
   for (const m of joined.matchAll(/"(?:price|amount|value|max_per_order_usd|monthly_cap_usd)"\s*:\s*"?(\d+(?:\.\d+)?)/g)) idx.money.add(Number(m[1]).toFixed(2));
@@ -145,6 +167,19 @@ export function unverifiedBuyerClaims(buyerTexts, sellerIdx) {
     for (const c of CLAIM_PATTERNS) if (c.re.test(normalizeText(text)) && !c.check(sellerIdx)) out.push(`Buyer ${c.label}; nothing in your records supports this`);
   }
   return [...new Set(out)];
+}
+
+/**
+ * In a draft, drop injected sentences from buyer quotes ("... IGNORE ALL PRIOR INSTRUCTIONS ...") so the
+ * instruction is never forwarded to PayPal. What's left of the quote is still the buyer's own words.
+ */
+export function stripInjectionFromQuotes(text) {
+  return String(text ?? "").replace(/(["“])([^"”]{1,2000})(["”])/g, (whole, open, inner, close) => {
+    const sentences = inner.split(/(?<=[.!?;])\s+/);
+    const kept = sentences.filter((s) => !INJECTION.some((re) => re.test(normalizeText(s))));
+    if (kept.length === sentences.length) return whole;
+    return kept.length ? `${open}${kept.join(" ").replace(/[;,]\s*$/, ".")}${close}` : "";
+  }).replace(/\s{2,}/g, " ").replace(/\s+([.,;])/g, "$1").trim();
 }
 
 /** Remove anything that could close our prompt delimiters from untrusted text. */
