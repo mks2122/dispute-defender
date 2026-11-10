@@ -54,6 +54,11 @@ export const SCHEMA = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at TEXT NOT NULL, dispute_id TEXT, event TEXT NOT NULL, detail TEXT
   );
+  CREATE TABLE IF NOT EXISTS imported_records (
+    dispute_id  TEXT PRIMARY KEY,                 -- a dispute that isn't in the store catalog
+    records     TEXT NOT NULL,                    -- validated records (JSON), see server/store/import.js
+    imported_at TEXT NOT NULL
+  );
 `;
 db.exec(SCHEMA);
 
@@ -67,7 +72,7 @@ const now = () => new Date().toISOString();
 
 // ---------- change tracking (for the durable mirror) ----------
 /** Mirrored tables and their primary keys. `locks` is deliberately excluded: it only coordinates live processes. */
-export const MIRRORED = { meta: "key", disputes: "id", submissions: "dispute_id", analyses: "id", audit: "id" };
+export const MIRRORED = { meta: "key", disputes: "id", submissions: "dispute_id", analyses: "id", audit: "id", imported_records: "dispute_id" };
 let onChange = null;
 /** Register the single listener told about every changed row (table, key). Pass null to stop. */
 export const setChangeListener = (fn) => { onChange = fn; };
@@ -152,8 +157,22 @@ export function setBatch(id, batch) {
   changed("disputes", id);
 }
 export const poolRows = () => db.prepare("SELECT * FROM disputes WHERE batch = 'pool' ORDER BY created_at ASC").all();
-/** Disputes the sync loop keeps fresh: the pool plus the active batch. */
-export const liveRows = (batch) => db.prepare("SELECT * FROM disputes WHERE batch IN ('pool', ?)").all(batch ?? "");
+/** Disputes the sync loop keeps fresh: the pool, the active batch and disputes from outside the store. */
+export const liveRows = (batch) => db.prepare("SELECT * FROM disputes WHERE batch IN ('pool', 'external', ?)").all(batch ?? "");
+/** Retired disputes with no store scenario: candidates for the "external" inbox (records imported by the seller). */
+export const retiredUnknownRows = () => db.prepare("SELECT * FROM disputes WHERE batch = 'retired' AND scenario IS NULL").all();
+
+// ---------- imported records ----------
+/** Records the seller imported for a dispute outside the store catalog, or null. */
+export function getImportedRecords(disputeId) {
+  const row = db.prepare("SELECT records FROM imported_records WHERE dispute_id = ?").get(disputeId);
+  return row ? JSON.parse(row.records) : null;
+}
+export function saveImportedRecords(disputeId, records) {
+  db.prepare("INSERT INTO imported_records (dispute_id, records, imported_at) VALUES (?, ?, ?) ON CONFLICT(dispute_id) DO UPDATE SET records = excluded.records, imported_at = excluded.imported_at")
+    .run(disputeId, JSON.stringify(records), now());
+  changed("imported_records", disputeId);
+}
 
 // ---------- submissions ----------
 export const getSubmission = (id) => db.prepare("SELECT * FROM submissions WHERE dispute_id = ?").get(id) ?? null;

@@ -7,7 +7,9 @@ import { analyzeDispute, checkDraft } from "./ai/analyze.js";
 import { submitDecision, SubmitError } from "./submit.js";
 import { aiProviderName, isSandbox } from "./config.js";
 import { toRow, toCase } from "./view.js";
-import { activeBatch, poolSummary, resetDemo } from "./pool.js";
+import { activeBatch, poolSummary, resetDemo, externalRows } from "./pool.js";
+import { parseRecords } from "./store/import.js";
+import { saveImportedRecords, audit } from "./db.js";
 import { isRefilling } from "./paypal/seed.js";
 import { syncOnce, syncStatus, hasSyncedOnce } from "./sync.js";
 import { isAuthed, login, loginLimiter, requireAuth } from "./auth.js";
@@ -35,7 +37,8 @@ api.get("/disputes", (_req, res) => {
   res.json({
     batch,
     batchAt: getMeta("active_batch_at"),
-    rows: batch ? safeRows(disputesInBatch(batch)) : [],
+    // The store batch plus disputes from outside the store (their records are imported by the seller).
+    rows: safeRows([...(batch ? disputesInBatch(batch) : []), ...externalRows()]),
     pool: poolSummary(),
     refilling: isRefilling(),
     sync: syncStatus(),
@@ -46,6 +49,7 @@ api.get("/disputes", (_req, res) => {
 // Activity feed for the dashboard. Only these event names are shown to users.
 const ACTIVITY = {
   seeded: "Dispute opened in PayPal",
+  records_imported: "Seller records imported",
   ai_analyzed: "AI analysis completed",
   evidence_submitted: "Evidence submitted to PayPal",
   refund_accepted: "Refund sent through PayPal",
@@ -54,11 +58,15 @@ const ACTIVITY = {
   submit_confirmed: "PayPal confirmed the response",
   submit_not_received: "PayPal did not receive the response",
 };
+const itemFor = (id) => {
+  const row = getDisputeRow(id);
+  try { return row ? toRow(row).item : "Unknown order"; } catch { return "Unknown order"; }
+};
 api.get("/activity", (_req, res) => {
   res.json({
     // Re-runs replace an analysis, so only the latest "AI analysis completed" per dispute is shown.
     items: recentActivity(200).filter((a, i, all) => ACTIVITY[a.event] && (a.event !== "ai_analyzed" || all.findIndex((b) => b.event === "ai_analyzed" && b.dispute_id === a.dispute_id) === i)).slice(0, 60).map((a) => ({
-      at: a.at, event: a.event, label: ACTIVITY[a.event], disputeId: a.dispute_id, item: scenarioByKey(a.scenario)?.title ?? "Unknown order",
+      at: a.at, event: a.event, label: ACTIVITY[a.event], disputeId: a.dispute_id, item: scenarioByKey(a.scenario)?.title ?? itemFor(a.dispute_id),
     })),
   });
 });
@@ -89,6 +97,19 @@ api.post("/disputes/:id/analyze", requireAuth, wrap(async (req, res) => {
   if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   await analyzeDispute(row.id);
   res.json(toCase(getDisputeRow(row.id)));
+}));
+
+// Import seller records for a dispute outside the store catalog, then analyse it (needs the passcode:
+// it changes what the AI and the guard treat as the seller's facts, and a real model costs money).
+api.post("/disputes/:id/records", requireAuth, wrap(async (req, res) => {
+  const row = getDisputeRow(req.params.id);
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
+  if (scenarioByKey(row.scenario)) return res.status(409).json({ error: "This order's records come from your store and can't be replaced here." });
+  const { records, warnings } = parseRecords(req.body?.text); // ImportError → 400 with a fixable message
+  saveImportedRecords(row.id, records);
+  audit(row.id, "records_imported", { count: records.length });
+  await analyzeDispute(row.id);
+  res.json({ warnings, dispute: toCase(getDisputeRow(row.id)) });
 }));
 
 // Live fact-check of the seller's edited draft. Pure and side-effect free.

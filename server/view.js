@@ -1,6 +1,7 @@
 // Turns raw PayPal dispute JSON + store data into what the UI shows.
 import { scenarioByKey, STORE } from "./store/catalog.js";
 import { getSubmission, auditFor, latestAnalysis } from "./db.js";
+import { recordsFor } from "./records.js";
 import { linkRels } from "./paypal/client.js";
 import { isResolved, isActionable, sellerHasActed } from "./disputes.js";
 
@@ -36,9 +37,16 @@ export function buyerClaims(d) {
     .map((e) => ({ date: e.date, text: e.notes, source: "SUBMITTED_BY_BUYER" }));
 }
 
+const firstImage = (records) => {
+  const listing = records.find((r) => r.type === "listing");
+  return [].concat(listing?.data?.images ?? [])[0] ?? null;
+};
+
 export function toRow(row) {
   const d = JSON.parse(row.raw);
   const sc = scenarioByKey(row.scenario);
+  const { records, source } = recordsFor(row);
+  const orderItem = records.find((r) => r.type === "order")?.data?.items?.[0]?.name;
   const submission = getSubmission(row.id);
   const parsed = Number(d.dispute_amount?.value);
   const amount = Number.isFinite(parsed) ? parsed : 0;
@@ -47,8 +55,9 @@ export function toRow(row) {
   return {
     id: row.id,
     scenario: row.scenario,
-    item: sc?.title ?? "Unknown order",
-    tags: [sc?.hero && "hero", sc?.agentic && "agent purchase", sc?.adversarial && "adversarial"].filter(Boolean),
+    item: sc?.title ?? orderItem ?? `PayPal order ${d.disputed_transactions?.[0]?.seller_transaction_id ?? row.id}`,
+    tags: [sc?.hero && "hero", sc?.agentic && "agent purchase", sc?.adversarial && "adversarial", source === "imported" && "imported", source === "none" && "no records"].filter(Boolean),
+    recordsSource: source,
     buyer: d.disputed_transactions?.[0]?.buyer?.name ?? sc?.buyer.name ?? "—",
     amount,
     currency: d.dispute_amount?.currency_code ?? "USD",
@@ -65,7 +74,7 @@ export function toRow(row) {
     outcome: d.dispute_outcome?.outcome_code ?? null,
     createdAt: d.create_time ?? row.created_at,
     updatedAt: d.update_time ?? row.synced_at,
-    image: sc?.thumb ?? sc?.records.find((r) => r.type === "listing")?.data.images?.[0] ?? null,
+    image: sc?.thumb ?? firstImage(records),
     ai: aiSummary(latestAnalysis(row.id)),
   };
 }
@@ -85,12 +94,14 @@ export function analysisView(a) {
 
 export function toCase(row) {
   const d = JSON.parse(row.raw);
-  const sc = scenarioByKey(row.scenario);
+  const { records } = recordsFor(row);
   return {
     ...toRow(row),
     store: STORE,
     buyerClaims: buyerClaims(d),
-    records: sc?.records ?? [],
+    records,
+    // Store orders get their records from the catalog; any other dispute takes records the seller imports.
+    canImport: !scenarioByKey(row.scenario),
     requestedFromSeller: (d.evidences ?? []).filter((e) => e.source === "REQUESTED_FROM_SELLER").map((e) => e.evidence_type),
     allowedResponses: d.allowed_response_options ?? null,
     transaction: d.disputed_transactions?.[0] ?? null,

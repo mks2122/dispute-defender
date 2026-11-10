@@ -3,7 +3,7 @@
 // problems: if the real model fails, the deterministic mock stands in and the result says so.
 import { config, aiProviderName } from "../config.js";
 import { getDisputeRow, saveAnalysis, latestAnalysis, audit } from "../db.js";
-import { scenarioByKey } from "../store/catalog.js";
+import { recordsFor } from "../records.js";
 import { validateAnalysis } from "./schema.js";
 import { guardDraft, expectedValue, bandFor } from "./guard.js";
 import { checkMandate } from "./mandate.js";
@@ -16,7 +16,7 @@ import { mapLimit } from "../util.js";
 /** Everything the model and the guard need about one dispute. */
 export function buildInput(row) {
   const dispute = JSON.parse(row.raw);
-  const records = scenarioByKey(row.scenario)?.records ?? [];
+  const { records } = recordsFor(row);
   const { sellerFacts, buyerTexts: loggedBuyerTexts } = splitRecords(records);
   const buyerTexts = [
     ...(dispute.evidences ?? []).filter((e) => e.source === "SUBMITTED_BY_BUYER" && e.notes).map((e) => e.notes),
@@ -123,7 +123,8 @@ async function doAnalyze(disputeId) {
 
 /** Sync hook: analyse disputes that have no analysis yet. Never throws. */
 export async function analyzeMissing(rows) {
-  const todo = rows.filter((r) => !latestAnalysis(r.id));
+  // Nothing to analyse until the dispute has seller records (store orders always do; others after an import).
+  const todo = rows.filter((r) => !latestAnalysis(r.id) && recordsFor(r).records.length > 0);
   if (!todo.length) return 0;
   const results = await mapLimit(todo, 2, (r) => analyzeDispute(r.id));
   for (const f of results.filter((x) => !x.ok)) log.error("ai", `auto-analysis failed for ${f.item.id}`, f.error);

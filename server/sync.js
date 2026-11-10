@@ -5,7 +5,7 @@ import { scenarioFromCustomId } from "./store/catalog.js";
 import { getDisputeRow, upsertDispute, setMeta, getMeta, liveRows, disputesInBatch } from "./db.js";
 import { analyzeMissing } from "./ai/analyze.js";
 import { reconcileSubmissions } from "./submit.js";
-import { activeBatch, topUpBatch, retireDeadPoolRows, ensureRefill } from "./pool.js";
+import { activeBatch, topUpBatch, retireDeadPoolRows, ensureRefill, adoptExternalRows } from "./pool.js";
 import { isResolved, sellerHasActed, isActionable, ageMs, STUCK_AFTER_MS } from "./disputes.js";
 import { mapLimit } from "./util.js";
 import { log, describeError } from "./log.js";
@@ -15,9 +15,13 @@ let running = false;
 /** True after the first successful sync in this process (the DB reflects PayPal). */
 export const hasSyncedOnce = () => syncedOnce;
 
-/** Where should a dispute we've never seen go? Unused + ours → pool; anything else → retired. */
+/**
+ * Where should a dispute we've never seen go? Unused store disputes → pool. A dispute from outside the store
+ * that still needs a response → "external" (shown in the inbox; the seller imports its records). Else retired.
+ */
 export function classifyNew(d, scenario) {
-  if (!scenario || isResolved(d) || sellerHasActed(d)) return "retired";
+  if (!scenario) return isActionable(d) && !sellerHasActed(d) ? "external" : "retired";
+  if (isResolved(d) || sellerHasActed(d)) return "retired";
   if (isActionable(d) || d.status === "OPEN") return "pool";
   // UNDER_REVIEW: fresh disputes pass through it on the way to WAITING; old ones were acted on or are stuck.
   return ageMs(d) < STUCK_AFTER_MS ? "pool" : "retired";
@@ -60,6 +64,7 @@ export async function syncOnce() {
 
     // 3. Stop polling pool disputes that can never be used, then fill any scenario missing from the inbox.
     const retired = retireDeadPoolRows();
+    adoptExternalRows();
     const top = topUpBatch();
     if (top.changed) log.info("sync", `batch ${top.batch}: +${top.picked.length} dispute(s)`);
 
