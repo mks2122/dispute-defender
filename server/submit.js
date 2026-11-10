@@ -9,6 +9,9 @@ import { renderPdf } from "./evidence/pdf.js";
 import { MAX_NOTES } from "./ai/schema.js";
 import { isActionable, sellerHasActed } from "./disputes.js";
 import { log } from "./log.js";
+import { readFileSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join, basename } from "node:path";
 
 export class SubmitError extends Error {
   constructor(status, message, extra = {}) { super(message); this.status = status; this.expose = true; Object.assign(this, extra); }
@@ -28,16 +31,57 @@ export function buildEvidences(dispute, records, notes) {
   return [{ evidence_type: "OTHER", notes }];
 }
 
-/** Evidence packet PDF: the approved response plus every cited seller record. */
-export function buildPacket(dispute, records, notes, analysis) {
+// Seller photos live with the web app's store images. Only these paths are ever read from disk.
+const STORE_DIR = fileURLToPath(new URL("../web/public/store/", import.meta.url));
+const PHOTO_PATH = /^\/store\/([\w-]+\.(png|jpe?g|gif))$/i;
+const PHOTO_FIELDS = new Set(["images", "packing_photo"]);
+const MAX_PHOTOS = 8; // PayPal takes up to 10 files per submission; one is the PDF
+const MAX_PHOTO_BYTES = 5_000_000;
+
+/** The seller's own photos (listing and packing) as PayPal evidence files. Buyer attachments are never sent back. */
+export function sellerPhotos(records) {
+  const seen = new Set();
+  const out = [];
+  for (const r of records) {
+    if (r.data?.from === "buyer" || r.type === "message") continue;
+    for (const [k, v] of Object.entries(r.data ?? {})) {
+      if (!PHOTO_FIELDS.has(k)) continue;
+      for (const p of [].concat(v)) {
+        const m = typeof p === "string" ? PHOTO_PATH.exec(p) : null;
+        if (!m || seen.has(m[1]) || out.length >= MAX_PHOTOS) continue;
+        seen.add(m[1]);
+        const file = join(STORE_DIR, m[1]);
+        try {
+          if (statSync(file).size > MAX_PHOTO_BYTES) continue;
+          const ext = m[2].toLowerCase();
+          out.push({ name: `${r.id}-${m[1]}`, file: m[1], type: ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg", data: readFileSync(file), recordId: r.id, label: k === "packing_photo" ? "packing photo" : "listing photo" });
+        } catch { log.warn("submit", `photo ${m[1]} for ${r.id} is missing; not attached`); }
+      }
+    }
+  }
+  return out;
+}
+
+/** A record field as packet text: photo paths become the name of the attached file, never a local path. */
+function fieldText(k, v, photos) {
+  if (PHOTO_FIELDS.has(k) || k === "attachment") {
+    const names = [].concat(v).map((p) => photos.find((f) => f.file === basename(String(p)))?.name).filter(Boolean);
+    return names.length ? `${k.replace(/_/g, " ")}: attached as ${names.join(", ")}` : null;
+  }
+  return `${k.replace(/_/g, " ")}: ${typeof v === "object" ? JSON.stringify(v) : v}`;
+}
+
+/** Evidence packet PDF: the approved response, every cited seller record, and a list of the attached photos. */
+export function buildPacket(dispute, records, notes, analysis, photos = []) {
   const cited = new Set([...(analysis?.reasoning ?? []), ...(analysis?.evidence ?? []), ...(analysis?.contradictions ?? [])].flatMap((x) => x.source_ids));
   const sections = [
     { heading: "Seller response", body: notes },
     ...records.filter((r) => cited.has(r.id) || r.type === "shipment" || r.type === "order").map((r) => ({
       heading: `${r.title} (${r.id})`,
-      body: Object.entries(r.data).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n"),
+      body: Object.entries(r.data).map(([k, v]) => fieldText(k, v, photos)).filter(Boolean).join("\n"),
     })),
   ];
+  if (photos.length) sections.push({ heading: "Attached photos", body: photos.map((p) => `${p.name}: seller ${p.label} (${p.recordId})`).join("\n") });
   if (analysis?.mandate) sections.push({ heading: "AI-agent mandate check", body: analysis.mandate.checks.map((c) => `${c.ok ? "PASS" : "FAIL"} ${c.label}: ${c.detail}`).join("\n") });
   return { name: `evidence-${dispute.dispute_id}.pdf`, type: "application/pdf", data: renderPdf({ title: `Evidence packet: dispute ${dispute.dispute_id}`, sections }) };
 }
@@ -54,15 +98,17 @@ export async function submitDecision(disputeId, { decision, notes, analysisId })
   if (!text) throw new SubmitError(400, "Add a response before submitting.");
   if (text.length > MAX_NOTES) throw new SubmitError(400, `The response is ${text.length} characters; PayPal allows ${MAX_NOTES}.`);
   const analysisRow = latestAnalysis(disputeId);
-  if (!analysisRow || analysisRow.id !== Number(analysisId)) throw new SubmitError(409, "The analysis changed since you opened this dispute. Review the latest one and try again.");
-  const analysis = JSON.parse(analysisRow.payload);
+  // A refund needs no analysis: a seller may refund a dispute they have no records for. Fighting always needs one.
+  const refundWithoutAnalysis = decision === "REFUND" && !analysisRow && analysisId == null;
+  if (!refundWithoutAnalysis && (!analysisRow || analysisRow.id !== Number(analysisId))) throw new SubmitError(409, "The analysis changed since you opened this dispute. Review the latest one and try again.");
+  const analysis = analysisRow ? JSON.parse(analysisRow.payload) : null;
 
   // Every note that goes to PayPal is fact-checked, including a refund's acceptance note.
   const guard = checkDraft(row, text, analysis);
   if (!guard.ok) throw new SubmitError(422, "Some facts in the response couldn't be verified against your records.", { errors: guard.errors });
 
   const action = ACTION[decision];
-  if (!claimSubmission(disputeId, action, analysisRow.id)) throw new SubmitError(409, "A response for this dispute was already sent.");
+  if (!claimSubmission(disputeId, action, analysisRow?.id ?? null)) throw new SubmitError(409, "A response for this dispute was already sent.");
 
   // Nothing has been sent yet: any failure here releases the claim so the seller can retry.
   let live;
@@ -80,7 +126,10 @@ export async function submitDecision(disputeId, { decision, notes, analysisId })
 
   const { records } = buildInput(getDisputeRow(disputeId));
   try {
-    if (decision === "FIGHT") await provideEvidence(disputeId, { evidences: buildEvidences(live, records, text), file: buildPacket(live, records, text, analysis) });
+    if (decision === "FIGHT") {
+      const photos = sellerPhotos(records);
+      await provideEvidence(disputeId, { evidences: buildEvidences(live, records, text), files: [buildPacket(live, records, text, analysis, photos), ...photos] });
+    }
     else await acceptClaim(disputeId, text);
   } catch (e) {
     if (e instanceof PayPalError && e.status >= 400 && e.status < 500) {
@@ -97,7 +146,7 @@ export async function submitDecision(disputeId, { decision, notes, analysisId })
   }
 
   finishSubmission(disputeId, "done", { action });
-  audit(disputeId, decision === "FIGHT" ? "evidence_submitted" : "refund_accepted", { analysis_id: analysisRow.id });
+  audit(disputeId, decision === "FIGHT" ? "evidence_submitted" : "refund_accepted", { analysis_id: analysisRow?.id ?? null });
   try { upsertDispute(await getDispute(disputeId)); } catch (e) { log.warn("submit", `post-submit refresh failed: ${e.message}`); }
   return { status: "done", action };
 }

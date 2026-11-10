@@ -12,17 +12,17 @@ Built for the PayPal AI Hackathon (Devpost), November 2026.
 | **Live PayPal dashboard** | Real sandbox disputes from the Disputes API, ranked by the expected value of responding. Overview KPIs, a priority queue, money at risk by reason, and an activity feed. Works on desktop, tablet and phone. |
 | **AI verdict** | Fight or refund, a win chance shown as a band, and the expected value of fighting. When the seller is partly at fault the AI may suggest a goodwill partial refund; PayPal chargebacks themselves only accept a full refund. |
 | **Cited reasoning** | Every point links to the seller record it came from (shipment, listing, supplier certificate, message log…). Buyer claims are compared side by side with the records. |
-| **Fact-checking guard** | Every tracking number, amount, date, signature and record id in a draft must match a record the seller owns, and a date must belong to the right event ("delivered on" must be the delivery date). Claims that something happened (an agreement, a refund, a return, a phone call, an admission, fraud) need a record that shows it. Text the buyer wrote never counts as evidence. The guard re-runs live as the seller edits. |
-| **Prompt-injection defence** | Buyer text and buyer photos are treated as claims, never instructions. The demo includes a buyer note and a buyer photo that both try to make the AI refund; the model reads the photo, reports the hidden instruction and ignores it. If an injection ever does push the verdict to refund, code flags it for a second look. |
+| **Fact-checking guard** | A deterministic checker (pattern-based, not a second AI) runs on every draft. Tracking numbers, amounts (in digits or words), dates in the common formats, signatures, record ids, IP addresses, phone numbers and counts ("3 earlier orders") must match records the seller owns, and a date must belong to the right event ("delivered on" must be the delivery date). Claims that something happened (an agreement, a refund, a return, a reply, a phone call, an admission, fraud) need a record of the right kind, and a draft can't contradict the code's mandate check. Buyer text never verifies a fact, and a quoted buyer statement can't be endorsed as true. It re-runs live as the seller edits, and the seller reviews every draft: names, addresses and relative times are not machine-checked. |
+| **Prompt-injection defence** | Buyer text and buyer photos are treated as claims, never instructions. The demo includes a buyer note and a buyer photo that both try to make the AI refund; the model reads the photo, reports the hidden instruction and ignores it. Code also scans buyer text for injection phrasing (including indirect and non-English attempts); when it or the model spots one and the verdict is refund, the seller gets a warning to check the reasoning. |
 | **Import your own records** | Disputes that don't come from the connected store still show up in the inbox. The seller pastes or uploads the order, shipment, listing and messages as JSON or CSV; they're validated, saved, and the dispute is analysed and fact-checked against them like any other. |
 | **AI-agent purchase disputes** | When a buyer says "my AI agent bought this", the order is checked against the purchase mandate the buyer signed: agent, category, spending cap, validity dates, consent time. |
-| **Approve → PayPal** | Submit evidence (`provide-evidence`, with a generated PDF evidence packet) or refund (`accept-claim`). Nothing is sent without a click and a confirmation. A dispute can never be acted on twice. |
+| **Approve → PayPal** | Submit evidence (`provide-evidence`, with a generated PDF evidence packet plus the seller's listing and packing photos as separate files) or refund (`accept-claim`, also possible on a dispute with no records). Nothing is sent without a click and a confirmation. A dispute can never be acted on twice. |
 
 ## How it uses PayPal
 | API | Used for |
 |---|---|
 | `GET /v1/customer/disputes`, `GET /v1/customer/disputes/{id}` | Inbox, case details, live allowed actions (HATEOAS links), the buyer's claim |
-| `POST /v1/customer/disputes/{id}/provide-evidence` | Submitting the approved response plus a PDF evidence packet |
+| `POST /v1/customer/disputes/{id}/provide-evidence` | Submitting the approved response, a PDF evidence packet and the seller's photos (multipart, one `evidence-file` part each) |
 | `POST /v1/customer/disputes/{id}/accept-claim` | Refunding when the records support the buyer |
 | `POST /v2/checkout/orders` + capture, `GET /v2/payments/captures/{id}` | Demo sales; mapping a dispute back to its order through `custom_id` |
 | `POST /v2/customer-support/process-chargeback` (sandbox only) | Generating realistic demo chargebacks |
@@ -37,7 +37,7 @@ Built for the PayPal AI Hackathon (Devpost), November 2026.
   - injection detection;
   - unverified-claim detection;
   - the fact-checking guard.
-- **Measured cost:** about $0.0015 per analysis (roughly 1,700 input and 1,100 output tokens, 8–15 s) with Luna at $0.20 / $1.20 per million tokens. All 8 demo cases cost about 1.3¢ together.
+- **Measured cost:** about $0.0015 per analysis (roughly 1,700 input and 1,100 output tokens, usually 8–15 s, up to about 35 s) with Luna at $0.20 / $1.20 per million tokens. All 8 demo cases cost about 1.3¢ together.
 
 ## Run it locally
 Requires Node 22.13+ and a PayPal developer account.
@@ -54,9 +54,9 @@ For development, run `npm run dev` (API) and `npm run dev:web` (Vite on :5173) t
 ## Importing records
 For a dispute that isn't a store order, open it and use **Add your records** (or **Replace records** later). Paste or upload:
 - **JSON:** a list of records, or `{ "records": [...] }`. Each record has an `id` like `ORD-1001`, a `type`, an optional `title` and a `data` object.
-- **CSV:** the columns `id,type,title,field,value`, one row per field; rows with the same id become one record. Long numbers (tracking, zip codes) stay text.
+- **CSV:** the columns `id,type,title,field,value`, one row per field; rows with the same id become one record. Identifier fields (tracking, zip, phone, sku, anything ending in `_id` or `number`) and any number over 9 digits stay text. A repeated field, or an id given two types, is an error.
 
-Types: `order`, `shipment`, `listing`, `message` (with `from`: `buyer` or `seller`), `message_log`, `policy`, `supplier_cert`, `prior_order`, `agent_mandate`, `note`. Limits: 40 records, 64 KB, 30 fields per record, nesting depth 3. Photos can't be uploaded; only images already in `web/public/store/` are kept. Saving needs the passcode and runs one analysis.
+Types: `order`, `shipment`, `listing`, `message` (`from` is required: `buyer` or `seller`; only messages may have it), `message_log`, `policy`, `supplier_cert`, `prior_order`, `agent_mandate`, `note`. Limits: 40 records, 64 KB, 30 fields per record, nesting depth 3. Photos can't be uploaded; only images already in `web/public/store/` are kept. An `agent_mandate` needs `agent_id`, `allowed_categories`, `max_per_order_usd`, `valid_from`, `valid_until` and `consent_at`, and an order with `placed_by_agent` needs `placed` and priced `items`. Saving needs the passcode and runs one analysis.
 
 ```json
 [
@@ -69,6 +69,7 @@ Types: `order`, `shipment`, `listing`, `message` (with `from`: `buyer` or `selle
 `render.yaml` describes a single web service:
 - **Build:** `npm ci && npm run build`. **Start:** `npm start`. **Health check:** `/api/health`.
 - **Secrets** are set in the Render dashboard: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `DEMO_PASSCODE`, and optionally `OPENAI_API_KEY`.
+- **Privacy:** the demo lets anyone with the URL read disputes (writes need the passcode). For a real seller, set `REQUIRE_LOGIN_TO_VIEW=true` so reading buyer names and addresses needs the passcode too. On Render the app trusts one proxy hop for client IPs (`TRUST_PROXY` overrides it).
 - **The local database is only a cache.** On a fresh boot the app rebuilds its state from PayPal.
 - **Optional: keep history across restarts with Turso (free).** Create a database at turso.tech, then set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in Render. The activity feed and AI analyses then survive sleeps and redeploys.
 - **Seed once, from your machine,** against the same sandbox app: `npm run seed`.

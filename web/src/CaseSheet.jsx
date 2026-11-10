@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
-import { Icon, Status, Thumb, Badge, money, signedMoney, dueLabel, bandWord } from "./ui.jsx";
+import { Icon, Status, Thumb, Badge, money, signedMoney, dueLabel, bandWord, isCloseCall } from "./ui.jsx";
 import ImportPanel from "./ImportPanel.jsx";
 
 const MAX_NOTES = 2000;
@@ -64,7 +64,11 @@ export default function CaseSheet({ id, onClose, runWrite, onChanged, notify }) 
 
 function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   const a = c.analysis;
-  const [decision, setDecision] = useState(a?.recommendation ?? "FIGHT");
+  // Disputes outside the store start with no records: the seller imports them before anything is analysed,
+  // or simply refunds (a refund needs no records or analysis).
+  const needsRecords = c.canImport && c.records.length === 0;
+  const refundOnly = !a && needsRecords;
+  const [decision, setDecision] = useState(a?.recommendation ?? (refundOnly ? "REFUND" : "FIGHT"));
   // One draft per decision, so toggling Fight/Refund never throws away the seller's edits.
   const original = { FIGHT: a?.recommendation === "FIGHT" ? a.draft_notes : "", REFUND: a?.recommendation === "REFUND" ? a.draft_notes : REFUND_NOTE };
   const [drafts, setDrafts] = useState(original);
@@ -92,13 +96,13 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
 
   // Live fact-check of the response as the seller edits it (debounced, cancelled on change/unmount).
   useEffect(() => {
-    if (acted || !a) return undefined;
+    if (acted || (!a && !refundOnly)) return undefined;
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       api.validate(c.id, notes, ctrl.signal).then(setCheck).catch((e) => { if (e.name !== "AbortError") setCheck(null); });
     }, 350);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [notes, c.id, acted, a]);
+  }, [notes, c.id, acted, a, refundOnly]);
 
   const flash = (rid) => {
     const el = bodyRef.current?.querySelector(`[data-record="${rid}"]`);
@@ -114,7 +118,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
     setBusy("submit");
     setServerErrors(null);
     try {
-      const r = await runWrite(() => api.submit(c.id, { decision, notes, analysisId: a.id }));
+      const r = await runWrite(() => api.submit(c.id, { decision, notes, analysisId: a?.id ?? null }));
       if (r) {
         notify(r.status === "unknown" ? "Sent. PayPal hasn't confirmed yet; we'll check automatically." : decision === "FIGHT" ? "Evidence submitted to PayPal." : "Refund sent through PayPal.");
         await reload();
@@ -140,9 +144,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   const due = dueLabel(c.paypalDue);
   const guardErrors = serverErrors ?? (check && !check.ok ? check.errors : null);
   const overLimit = notes.length > MAX_NOTES;
-  const hasWatchouts = a && (a.injection_detected || a.unverified_buyer_claims.length > 0 || a.warnings.length > 0);
-  // Disputes outside the store start with no records: the seller imports them before anything is analysed.
-  const needsRecords = c.canImport && c.records.length === 0;
+  const hasWatchouts = a && (a.injection_detected || a.warnings.length > 0);
 
   return (
     <>
@@ -171,12 +173,20 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
         )}
         {!needsRecords && (a ? <Verdict a={a} c={c} onRerun={rerun} busy={busy === "analyze"} confirmDiscard={confirmRerun} /> : <div className="card card-body"><div className="skeleton" style={{ height: 100 }} /><p className="small muted">Analyzing this dispute…</p></div>)}
 
+        {a?.unverified_buyer_claims.length > 0 && (
+          <section className="card card-body section">
+            <h4>Buyer claims we couldn't verify</h4>
+            <ul className="notes">
+              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="faint"><Icon name="info" size={14} /></span><span>{/[.!?]["”]?$/.test(u) ? u : `${u}.`}</span></li>)}
+            </ul>
+          </section>
+        )}
+
         {hasWatchouts && (
           <section className="card card-body section">
-            <h4>Watch-outs</h4>
+            <h4>Check before you send</h4>
             <ul className="notes">
               {a.injection_detected && <li><span className="warn-text"><Icon name="alert" size={14} /></span><span>The buyer's message or photo tried to give the AI instructions. They were ignored.</span></li>}
-              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="warn-text"><Icon name="alert" size={14} /></span><span>{/[.!?]["”]?$/.test(u) ? u : `${u}.`}</span></li>)}
               {a.warnings.map((w) => <li key={w}><span className="faint"><Icon name="alert" size={14} /></span><span className="muted">{w}</span></li>)}
             </ul>
           </section>
@@ -233,11 +243,11 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           </section>
         )}
 
-        {a && (
+        {(a || refundOnly) && (
           <section className="card card-body section">
             <h4>
-              {acted ? "Response" : decision === "FIGHT" ? "Response to PayPal" : "Note to PayPal"}
-              {!acted && (
+              {acted ? "Response" : decision === "FIGHT" ? "Response to PayPal" : refundOnly ? "Or refund without records" : "Note to PayPal"}
+              {!acted && !refundOnly && (
                 <span className="tabs" role="group" aria-label="Decision">
                   <button aria-pressed={decision === "FIGHT"} onClick={() => choose("FIGHT")}>Fight</button>
                   <button aria-pressed={decision === "REFUND"} onClick={() => choose("REFUND")}>Refund</button>
@@ -283,7 +293,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
         </section>
       </div>
 
-      {a && !acted && (
+      {(a || refundOnly) && !acted && (
         <footer className="sheet-foot">
           <span className="grow">
             {!canAct ? "PayPal isn't accepting this action on this dispute right now."
@@ -315,13 +325,13 @@ function Verdict({ a, c, onRerun, busy, confirmDiscard }) {
       </div>
       <div className="verdict-grid">
         <div>
-          <div className="stat-k">Chance to win</div>
+          <div className="stat-k">Estimated chance to win</div>
           <div className="stat-v">{bandWord(a.confidence_band)} · {pct}%</div>
           <div className="meter"><span style={{ width: `${pct}%` }} /></div>
         </div>
         <div>
           <div className="stat-k">Expected value of fighting</div>
-          <div className="stat-v">{signedMoney(a.ev.fight)}</div>
+          <div className="stat-v">{signedMoney(a.ev.fight)}{isCloseCall({ recommendation: a.recommendation, ev: a.ev.fight }, c.amount) && <span className="small faint"> · close call</span>}</div>
         </div>
         <div>
           <div className="stat-k">{a.partial_refund_suggestion != null ? "Suggested partial refund" : "Disputed amount"}</div>

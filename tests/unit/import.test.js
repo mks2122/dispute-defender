@@ -29,6 +29,7 @@ test("parseRecords accepts CSV (one row per field), with quotes, numbers and JSO
     'ORD-5001,order,Order,items,"[{""name"":""Canvas tote"",""qty"":1,""price"":14}]"',
     'SHP-5001,shipment,Shipment,tracking,9400111899223857300099',
     'SHP-5001,shipment,Shipment,delivered,2026-10-06',
+    'MSG-5001,message,Buyer message,from,buyer',
     'MSG-5001,message,Buyer message,text,"Arrived, thanks!"',
   ].join("\r\n");
   const { records } = parseRecords(csv);

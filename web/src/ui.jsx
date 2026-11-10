@@ -22,6 +22,7 @@ const paths = {
   doc: "M7 3h7l5 5v13H7zM14 3v5h5",
   sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
   moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm0-10v5m0-8.5v.01",
 };
 
 /** Brand mark: a "D" whose bowl tapers to a shield's point (Dispute Defender). Also in public/favicon.svg. */
@@ -77,3 +78,17 @@ export const verdictWord = (rec) => (rec === "FIGHT" ? "Fight" : "Refund");
 export const bandWord = (b) => ({ high: "High", medium: "Medium", low: "Low" })[b] ?? b;
 export const NEEDS = (r) => r.phase === "ACTION_NEEDED";
 export const RESPONDED = (r) => ["SUBMITTING", "SUBMITTED", "RESOLVED"].includes(r.phase);
+
+/**
+ * Queue order: fights by expected value, then refunds by amount (quick to clear), then disputes still
+ * waiting for records or analysis. A refund is never ranked by the value of a fight it advises against.
+ */
+export const priority = (r) => {
+  if (r.ai?.recommendation === "FIGHT") return 2e6 + r.ai.ev;
+  if (r.ai?.recommendation === "REFUND") return 1e6 + r.amount;
+  return r.amount;
+};
+export const byPriority = (a, b) => priority(b) - priority(a);
+
+/** A fight whose expected value is positive but small: worth flagging as a judgement call. */
+export const isCloseCall = (ai, amount) => ai?.recommendation === "FIGHT" && ai.ev > 0 && ai.ev < Math.max(5, 0.15 * amount);

@@ -28,18 +28,32 @@ export function isAuthed(req) {
   return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
-// Brute-force guard on the passcode: 10 attempts per IP per 15 minutes.
+// Brute-force guard on the passcode: 10 attempts per IP per 15 minutes, and 100 in total across all clients
+// (so rotating IPs can't make unlimited guesses). req.ip honours X-Forwarded-For only behind a known proxy.
+const WINDOW_MS = 15 * 60_000;
+const PER_IP = 10;
+const GLOBAL = 100;
+const MAX_KEYS = 5000;
 const attempts = new Map();
+let all = [];
 export function loginLimiter(req, res, next) {
   const key = req.ip ?? "unknown";
   const now = Date.now();
-  const recent = (attempts.get(key) ?? []).filter((t) => now - t < 15 * 60_000);
-  if (recent.length >= 10) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
+  all = all.filter((t) => now - t < WINDOW_MS);
+  const recent = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (recent.length >= PER_IP || all.length >= GLOBAL) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
   recent.push(now);
-  attempts.set(key, recent);
-  if (attempts.size > 5000) attempts.clear(); // bound memory (ENGINEERING-PRACTICES §6)
+  all.push(now);
+  attempts.delete(key);
+  attempts.set(key, recent); // re-inserted: Map order is oldest-first
+  // Bound memory by dropping expired entries, then the oldest ones; never reset everyone's counters.
+  if (attempts.size > MAX_KEYS) {
+    for (const [k, ts] of attempts) if (!ts.some((t) => now - t < WINDOW_MS)) attempts.delete(k);
+    for (const k of attempts.keys()) { if (attempts.size <= MAX_KEYS) break; attempts.delete(k); }
+  }
   next();
 }
+export const __resetLimiter = () => { attempts.clear(); all = []; };
 
 export function login(req, res) {
   const pass = req.body?.passcode;
@@ -55,4 +69,10 @@ export function login(req, res) {
 export function requireAuth(req, res, next) {
   if (isAuthed(req)) return next();
   res.status(401).json({ error: "Passcode required.", needsPasscode: true });
+}
+
+/** Reads: open on the public demo, passcode-only when REQUIRE_LOGIN_TO_VIEW is set. */
+export function viewAuth(req, res, next) {
+  if (!config.privateView) return next();
+  return requireAuth(req, res, next);
 }
