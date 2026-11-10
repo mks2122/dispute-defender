@@ -33,6 +33,12 @@ export const config = {
   aiProvider: ["mock", "openai"].includes(process.env.AI_PROVIDER) ? process.env.AI_PROVIDER : "auto",
   // Seller's time to assemble and submit a response, in dollars; used for expected value.
   aiTimeCostUsd: num("AI_TIME_COST_USD", 10),
+  // Real sellers: reading disputes (buyer names, addresses) needs the passcode too. The public demo leaves it off.
+  privateView: /^(1|true|yes)$/i.test(process.env.REQUIRE_LOGIN_TO_VIEW ?? ""),
+  // Only trust X-Forwarded-For behind a known proxy (Render); otherwise any client could pick its own IP.
+  trustProxy: process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) || 0 : process.env.RENDER ? 1 : 0,
+  // Seconds between AI re-runs of the same dispute (each real-model run costs money).
+  analyzeCooldownMs: num("ANALYZE_COOLDOWN_MS", 60_000),
 };
 
 /** Which model actually runs: an explicit choice, else OpenAI if a key is configured, else the mock. */

@@ -32,6 +32,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [askPasscode, setAskPasscode] = useState(null);
   const askingRef = useRef(false);
+  const viewDeclined = useRef(false);
   const [toast, setToast] = useState(null);
   const alive = useRef(true);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -41,7 +42,15 @@ export default function App() {
       const d = await api.disputes();
       if (alive.current) { setData(d); setError(null); }
     } catch (e) {
-      if (alive.current) setError(e.message);
+      if (!alive.current) return;
+      // A private deployment: sign in to see disputes at all.
+      if (e.needsPasscode) {
+        setError("Sign in to see your disputes.");
+        if (!askingRef.current && !viewDeclined.current) {
+          askingRef.current = true;
+          setAskPasscode({ reason: "view", retry: () => { askingRef.current = false; load(); }, cancel: () => { askingRef.current = false; viewDeclined.current = true; } });
+        }
+      } else setError(e.message);
     }
   }, []);
 
@@ -119,7 +128,11 @@ export default function App() {
         </header>
 
         <main className="content">
-          {error && <div className="card card-body error-text" role="alert">Can't reach the server: {error}</div>}
+          {error && (
+            <div className="card card-body error-text" role="alert">
+              {/sign in/i.test(error) ? <>{error} <button className="link-btn" onClick={() => { viewDeclined.current = false; load(); }}>Sign in</button></> : `Can't reach the server: ${error}`}
+            </div>
+          )}
           {page === "overview" && <Overview rows={rows} loading={!data} onOpen={setSelected} />}
           {current.filter && (
             <Suspense fallback={<div className="card card-body"><div className="skeleton" style={{ height: 240 }} /></div>}>
@@ -134,6 +147,7 @@ export default function App() {
       {selected && <CaseSheet id={selected} onClose={closeCase} runWrite={runWrite} onChanged={load} notify={setToast} />}
       {askPasscode && (
         <PasscodeDialog
+          reason={askPasscode.reason}
           onCancel={() => { askPasscode.cancel(); setAskPasscode(null); }}
           onSuccess={() => { const { retry } = askPasscode; setAskPasscode(null); retry(); }}
         />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api.js";
-import { Thumb, money, signedMoney, timeAgo, verdictWord, NEEDS } from "./ui.jsx";
+import { Thumb, money, signedMoney, timeAgo, verdictWord, NEEDS, byPriority, isCloseCall } from "./ui.jsx";
 
 export default function Overview({ rows, loading, onOpen }) {
   const m = useMemo(() => {
@@ -24,7 +24,7 @@ export default function Overview({ rows, loading, onOpen }) {
 
   if (loading) return <div className="kpis">{[0, 1, 2, 3].map((i) => <div key={i} className="card kpi"><div className="skeleton" style={{ height: 52 }} /></div>)}</div>;
 
-  const queue = [...m.needs].sort((a, b) => (b.ai?.ev ?? -1e9) - (a.ai?.ev ?? -1e9));
+  const queue = [...m.needs].sort(byPriority);
   const maxReason = Math.max(1, ...m.reasons.map(([, v]) => v));
   const totalRec = m.fight.n + m.refund.n;
 
@@ -39,7 +39,7 @@ export default function Overview({ rows, loading, onOpen }) {
 
       <section className="kpis" aria-label="Key figures">
         <Kpi label="At risk" value={money(m.atRisk)} sub={`${m.open} open dispute${m.open === 1 ? "" : "s"}`} />
-        <Kpi label="Expected recovery" value={money(Math.round(m.recover * 100) / 100)} sub="if you fight the recommended ones" />
+        <Kpi label="Expected recovery" value={money(Math.round(m.recover * 100) / 100)} sub="AI estimate, if you fight the recommended ones" />
         <Kpi label="Needs response" value={m.needs.length} sub="before PayPal's deadline" />
         <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="checked against your records" />
       </section>
@@ -59,7 +59,7 @@ export default function Overview({ rows, loading, onOpen }) {
                     </span>
                     <span className="row-right">
                       <div className="verdict-text">{r.ai ? verdictWord(r.ai.recommendation) : r.recordsSource === "none" ? <span className="faint">Add records</span> : "Analyzing…"}</div>
-                      <div className="small faint">{!r.ai ? "" : r.ai.recommendation === "REFUND" ? `Refund ${money(r.amount, r.currency)}` : `${signedMoney(r.ai.ev)} expected`}</div>
+                      <div className="small faint">{!r.ai ? "" : r.ai.recommendation === "REFUND" ? `Refund ${money(r.amount, r.currency)}` : `${signedMoney(r.ai.ev)} expected${isCloseCall(r.ai, r.amount) ? " · close call" : ""}`}</div>
                     </span>
                   </button>
                 </li>

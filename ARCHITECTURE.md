@@ -203,7 +203,7 @@ seed ─▶ pool ──(WAITING, no submission)──▶ <active batch> ──(n
 ## 7. Trust boundaries and security model
 | Boundary | Threat | Control |
 |---|---|---|
-| Browser → `/api` writes | Anyone who has the public URL | Passcode → HMAC-signed, HttpOnly, SameSite=Lax cookie, Secure in prod. Login limited to 10 attempts per IP per 15 min. Reset has a persisted cooldown, checked and set synchronously, so concurrent requests can't interleave. |
+| Browser → `/api` writes | Anyone who has the public URL | Passcode → HMAC-signed, HttpOnly, SameSite=Lax cookie, Secure in prod. Login limited to 10 attempts per IP and 100 overall per 15 min; `X-Forwarded-For` is trusted only behind Render's proxy (`TRUST_PROXY`). Reads are public on the demo; `REQUIRE_LOGIN_TO_VIEW=true` puts them behind the passcode too. AI re-runs have a per-dispute cooldown (60 s). Reset has a persisted cooldown, checked and set synchronously, so concurrent requests can't interleave. |
 | Buyer text (PayPal notes, messages, image text) | Prompt injection, faked facts, XSS | Kept in the UNTRUSTED prompt section, with delimiters sanitized. Code-side injection detection. The guard never lets buyer-authored text verify a fact (§8). React escapes all text (`dangerouslySetInnerHTML` is banned). |
 | Secrets (PayPal, OpenAI, session) | Leaking into logs, responses or the client bundle | Env only. `PayPalError` never holds the response body. Error responses are generic (500, or 502 + PayPal debug id), and body-parser errors stay inside the API router's handler. `npm test` scans committable files and the bundle. |
 | PayPal API | Rate limits, 5xx, token expiry | Token cache keyed by `expires_in`, a single 401 refresh, backoff on 429/5xx **for GETs and idempotent creates only**, a 25 s timeout on every call. |
@@ -223,25 +223,29 @@ seed ─▶ pool ──(WAITING, no submission)──▶ <active batch> ──(n
 **Expected value.** EV(fight) = p · amount − `AI_TIME_COST_USD` (default $10); EV(refund) = 0. The chargeback fee is sunk either way.
 
 **Guard** (`ai/guard.js` + `ai/facts.js`):
-- Text is NFKC-normalised, and Arabic-Indic digits are mapped to ASCII.
+- Text is NFKC-normalised; invisible format characters are removed; Cyrillic/Greek look-alike letters, Arabic-Indic digits, dashes and quotes are mapped to ASCII.
 - Facts extracted:
   - tracking numbers: contiguous, grouped (each group must contain a digit), or anything introduced by the word "tracking";
-  - money: `$`, `€`, `£`, `USD`, `dollars`, bare amounts with cents (`110.00`), and numbers after a money word (`total was 110`);
-  - dates: ISO, `/`-separated, `Mon D, YYYY`, `D Mon YYYY`, and year-less `Mon D` and `M/D`;
-  - record ids: known prefixes in any case, or `ABC-1234`.
+  - money: `$`, `€`, `£`, `USD`, `dollars`, amounts in words ("two hundred dollars"), bare amounts with cents (`110.00`), and numbers after a money word (`total was 110`);
+  - dates: ISO, `/`- and `.`-separated (4- or 2-digit years), `Mon D, YYYY`, `D Mon YYYY`, "the 3rd of October", and year-less `Mon D`, `D Mon` and `M/D`;
+  - record ids: known prefixes in any case, or `ABC-1234` (compared ignoring punctuation, so "ISO-9001" matches "ISO 9001");
+  - IP addresses, phone numbers, and counts of orders, messages, disputes, chargebacks and similar ("14 chargebacks"). Orders and messages may be counted up to what the records hold; dispute-like counts need a recorded count.
 - Each fact must match **seller-asserted** data. Buyer message text never verifies a fact.
-- A buyer quote (`The buyer alleges "…"`) is exempt only if it is a genuine substring of the buyer's own words and at most 300 characters.
-- **Dates belong to events.** A date after "delivered", "shipped" or "placed/ordered" (same sentence, within 60 characters) must equal that event's date in the records.
-- **Signatures.** "signed for by NAME" must match a shipment's `signed_by`.
-- **Events need a record.** Claims that an agreement, refund, compensation, return, phone call or admission happened, or accusations of fraud or police involvement, need a supporting seller record. "The buyer never contacted us / never asked" is blocked whenever a buyer message is logged.
-- **Denials and reported speech are not claims.** "No return was received", "the refund agreement is not supported by our records" and "The buyer alleges that a refund was agreed" pass; a sentence that turns ("…, but we refunded them") does not.
+- A buyer quote (`The buyer alleges "…"`) is exempt only if it is a genuine substring of the buyer's own words and at most 300 characters, and only as a report: "…", which matches our label" is an error.
+- A `message` without `from: "seller"` is the buyer's; its text never verifies anything.
+- **Dates belong to events.** A date after "delivered", "shipped" or "placed/ordered" (same sentence, within 60 characters), or a date that opens its clause before one ("On 2026-10-21 the wallet was delivered"), must equal that event's date in the records.
+- **Signatures.** "signed for by NAME", "NAME signed…" and "Signature…: NAME" must match a shipment's `signed_by`.
+- **Events need a record of the right kind.** Agreements, calls and admissions need a seller message, message log or note; refunds and returns need `refunds`/`returns_received`; accusations need a note, a message log or a disputed earlier order; "we replied" needs a seller message and no `seller_replied: false`. Keyword searches never run over listings, orders or policies. "The buyer never contacted us / never asked" is blocked whenever a buyer message is logged. A draft saying the purchase was within the mandate is blocked when the code's mandate check failed.
+- **Denials, offers and reported speech are not claims, within their clause.** "No return was received", "the refund agreement is not supported by our records", "we will refund once it is returned" and "The buyer alleges that a refund was agreed" pass. The exemption is scoped: a negation or modal counts only after the last subject in the clause ("As you can see, we refunded" is a claim), a denial must be attached right after the event word, and a report ends at the next clause ("The buyer wrote to us and we refunded them" is a claim).
 - **Unreadable is an error.** Misspelled months, dates in words and numbers spelled out digit by digit are rejected with "write dates as YYYY-MM-DD", so they can't slip past unchecked. Unicode dashes and quotes are mapped to ASCII first.
 - **Offers are not claims.** "We will refund once it is returned" passes; "we sent the buyer a full refund" needs a record.
 - **Known limit:** names other than signatures, addresses, quantities, times and relative durations are not machine-checked. The seller reviews every draft before sending.
 
 **Records.** `server/records.js` `recordsFor(row)` is the single source of a dispute's seller records: the store catalog for store orders (matched by `custom_id`), otherwise the seller's import. Disputes outside the store that still need a response are kept in batch `external`; the inbox shows them with "Add records" until the seller imports. Import: `POST /api/disputes/:id/records {text}` (passcode), JSON or CSV, then one analysis.
 
-**Injection backstop.** Injection detection is a phrase heuristic used for the UI flag; the defence is structural (UNTRUSTED fencing plus the guard). If injection is detected and the verdict is REFUND, `analyze.js` always adds a warning asking the seller to confirm the reasoning stands on their records alone.
+**Injection backstop.** Injection detection is a phrase heuristic (direct, indirect "note to the reviewer", polite, and common Spanish/Portuguese/French/German forms) used for the UI flag; the defence is structural (UNTRUSTED fencing plus the guard). If the code or the model detects an injection and the verdict is REFUND, `analyze.js` adds a warning asking the seller to confirm the reasoning stands on their records alone. A phrasing neither catches gets no warning, which is why the guard, not the detector, is the defence.
+
+**Evidence sent to PayPal.** `provide-evidence` gets the PDF packet plus the seller's own listing and packing photos (`/store/` paths only, at most 8, 5 MB each) as extra `evidence-file` parts. Buyer attachments are never sent back. The PDF names the attached files instead of local paths.
 
 **Timeouts.** OpenAI calls time out after 30 s, with one retry on timeout, 429 or 5xx. The analysis is read-only, so the retry is safe.
 

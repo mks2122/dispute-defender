@@ -46,7 +46,15 @@ test("FIGHT: sends provide-evidence once, multipart with tracking + PDF, and rec
   const input = JSON.parse(await form.get("input").text());
   assert.equal(input.evidences[0].evidence_type, "PROOF_OF_FULFILLMENT");
   assert.equal(input.evidences[0].evidence_info.tracking_info[0].tracking_number, "1Z84X7E90312345678");
-  assert.match(form.get("evidence-file").name, /\.pdf$/);
+  const files = form.getAll("evidence-file");
+  assert.match(files[0].name, /\.pdf$/);
+  // The seller's listing and packing photos go to PayPal too (never the buyer's own attachments).
+  assert.deepEqual(files.slice(1).map((f) => f.name).sort(), ["LST-WALLET-wallet-listing-1.png", "LST-WALLET-wallet-listing-2.png", "SHP-1001-wallet-packing.png"]);
+  assert.ok(files.slice(1).every((f) => f.type === "image/png" && f.size > 1000));
+  // The PDF names the attached photos instead of printing local file paths.
+  const pdf = Buffer.from(await files[0].arrayBuffer()).toString("latin1");
+  assert.doesNotMatch(pdf, /\/store\//);
+  assert.match(pdf, /SHP-1001-wallet-packing\.png/);
   assert.equal(getSubmission(current.dispute_id).status, "done");
 });
 

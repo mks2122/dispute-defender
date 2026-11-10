@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
-import { Icon, Status, Thumb, money, signedMoney, dueLabel, verdictWord, bandWord } from "./ui.jsx";
+import { Icon, Status, Thumb, money, signedMoney, dueLabel, verdictWord, bandWord, byPriority, isCloseCall, priority } from "./ui.jsx";
 
 // Registered here (not in main.jsx) so AG Grid stays out of the first page load.
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -51,7 +51,7 @@ const VerdictCell = ({ data }) => (
 );
 // A refund recommendation shows no "value of fighting": a positive number next to "Refund" reads as a contradiction.
 const EvCell = ({ data }) => (data.ai && data.phase !== "RESOLVED" && data.ai.recommendation === "FIGHT"
-  ? <div className="cell-center"><span className={data.ai.ev > 0 ? "ev-pos" : "ev-neg"}>{signedMoney(data.ai.ev)}</span></div>
+  ? <div className="cell-center"><span className={data.ai.ev > 0 ? "ev-pos" : "ev-neg"}>{signedMoney(data.ai.ev)}</span>{isCloseCall(data.ai, data.amount) && <span className="faint" title="Positive, but small for the time it takes">· close call</span>}</div>
   : <div className="cell-center faint" title={data.ai?.recommendation === "REFUND" ? "Refund recommended" : undefined}>—</div>);
 const StatusCell = ({ data }) => <div className="cell-center"><Status phase={data.phase} label={data.phaseLabel} /></div>;
 const DueCell = ({ value }) => {
@@ -70,8 +70,8 @@ export default function DisputesPage({ title, rows, preset, loading, onOpen, sel
     { headerName: "Order", field: "item", flex: 2.4, minWidth: 240, cellRenderer: OrderCell },
     { headerName: "Reason", field: "reasonLabel", flex: 1.2, minWidth: 140 },
     { headerName: "Amount", field: "amount", flex: 0.8, minWidth: 96, valueFormatter: (p) => money(p.value, p.data.currency), cellClass: "num" },
-    { headerName: "AI verdict", field: "ai", flex: 1.2, minWidth: 150, cellRenderer: VerdictCell, comparator: (a, b) => (a?.ev ?? 0) - (b?.ev ?? 0) },
-    { headerName: "Value", headerTooltip: "Expected value of fighting: win chance × amount − your time", field: "ai", colId: "ev", flex: 0.9, minWidth: 110, cellRenderer: EvCell, comparator: (a, b) => (a?.ev ?? -1e9) - (b?.ev ?? -1e9), sort: "desc" },
+    { headerName: "AI verdict", field: "ai", flex: 1.2, minWidth: 150, cellRenderer: VerdictCell, comparator: (_a, _b, na, nb) => priority(na.data) - priority(nb.data) },
+    { headerName: "Value", headerTooltip: "Fights: expected value (AI-estimated win chance × amount − your time). Refunds are listed after fights, largest first.", field: "ai", colId: "ev", flex: 1, minWidth: 130, cellRenderer: EvCell, comparator: (_a, _b, na, nb) => priority(na.data) - priority(nb.data), sort: "desc" },
     { headerName: "Status", field: "phase", flex: 1.3, minWidth: 170, cellRenderer: StatusCell, comparator: (a, b) => PHASE_ORDER[a] - PHASE_ORDER[b] },
     { headerName: "PayPal deadline", field: "paypalDue", flex: 1.1, minWidth: 140, cellRenderer: DueCell },
   ], []);
@@ -112,7 +112,7 @@ export default function DisputesPage({ title, rows, preset, loading, onOpen, sel
               />
             </div>
             <div className="cards-list" role="list">
-              {[...shown].sort((a, b) => (b.ai?.ev ?? -1e9) - (a.ai?.ev ?? -1e9)).map((r) => (
+              {[...shown].sort(byPriority).map((r) => (
                 <button key={r.id} className="dcard" role="listitem" onClick={() => onOpen(r.id)}>
                   <Thumb src={r.image} />
                   <span style={{ minWidth: 0 }}>

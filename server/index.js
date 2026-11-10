@@ -11,7 +11,7 @@ import { startMirror, stopMirror } from "./mirror.js";
 import { log } from "./log.js";
 
 const app = express();
-app.set("trust proxy", 1);
+app.set("trust proxy", config.trustProxy);
 app.disable("x-powered-by");
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");

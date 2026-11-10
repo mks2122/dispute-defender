@@ -54,10 +54,34 @@ export function parseRecords(text) {
     const title = r.title == null || r.title === "" ? RECORD_TYPES[type] : String(r.title).slice(0, 80);
     if (r.data != null && !isPlainObject(r.data)) throw new ImportError(`${id}: data must be an object.`);
     const data = clean(r.data ?? {}, id, 1, warnings);
-    if (type === "message" && data.from != null && data.from !== "buyer" && data.from !== "seller") throw new ImportError(`${id}: a message's "from" must be "buyer" or "seller".`);
+    // Who wrote a message decides whether it can verify facts, so it must be stated; other records are the seller's own.
+    if (type === "message" && data.from !== "buyer" && data.from !== "seller") throw new ImportError(`${id}: a message needs "from": "buyer" or "seller".`);
+    if (type !== "message" && Object.hasOwn(data, "from")) throw new ImportError(`${id}: only message records have "from". Put buyer messages in their own message records.`);
+    if (type === "agent_mandate") checkMandateRecord(id, data);
+    if (type === "order" && data.placed_by_agent != null) checkAgentOrder(id, data);
     return { id, type, title, data };
   });
   return { records, warnings };
+}
+
+const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && Number.isFinite(Date.parse(v));
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+
+/** An AI-agent purchase mandate is checked by code, so every field the check uses must be there and well-formed. */
+function checkMandateRecord(id, d) {
+  const missing = [];
+  if (typeof d.agent_id !== "string" || !d.agent_id) missing.push("agent_id (text)");
+  if (!Array.isArray(d.allowed_categories) || !d.allowed_categories.length) missing.push("allowed_categories (a list)");
+  if (!isNum(d.max_per_order_usd)) missing.push("max_per_order_usd (a number)");
+  for (const k of ["valid_from", "valid_until", "consent_at"]) if (!isDate(d[k])) missing.push(`${k} (YYYY-MM-DD)`);
+  if (missing.length) throw new ImportError(`${id}: an agent mandate needs ${missing.join(", ")}.`);
+}
+
+function checkAgentOrder(id, d) {
+  const items = d.items;
+  if (!isDate(d.placed) || !Array.isArray(items) || !items.length || !items.every((i) => i && typeof i === "object" && isNum(i.price) && (i.qty == null || isNum(i.qty)))) {
+    throw new ImportError(`${id}: an order placed by an AI agent needs "placed" (YYYY-MM-DD) and "items", each with a numeric "price" (and "qty").`);
+  }
 }
 
 function clean(obj, id, depth, warnings) {
@@ -107,21 +131,31 @@ function fromCsv(text) {
   const byId = new Map();
   for (const [n, r] of rows.entries()) {
     if (r.every((c) => !c.trim())) continue;
+    const row = n + 2;
     const id = (r[col.id] ?? "").trim();
-    if (!id) throw new ImportError(`CSV row ${n + 2} has no id.`);
-    const rec = byId.get(id.toUpperCase()) ?? { id, type: r[col.type], title: col.title >= 0 ? r[col.title] : "", data: {} };
+    if (!id) throw new ImportError(`CSV row ${row} has no id.`);
+    const type = (r[col.type] ?? "").trim();
+    const rec = byId.get(id.toUpperCase()) ?? { id, type, title: col.title >= 0 ? r[col.title] : "", data: {} };
+    if (type && rec.type && type.toLowerCase() !== String(rec.type).toLowerCase()) throw new ImportError(`CSV row ${row}: ${id} was already given the type "${rec.type}".`);
     const field = (r[col.field] ?? "").trim();
-    if (field) rec.data[field] = csvValue(r[col.value] ?? "");
+    if (field) {
+      if (Object.hasOwn(rec.data, field)) throw new ImportError(`CSV row ${row}: ${id} has the field "${field}" twice.`);
+      rec.data[field] = csvValue(r[col.value] ?? "", field);
+    }
     byId.set(id.toUpperCase(), rec);
   }
   return [...byId.values()];
 }
 
+// Identifiers are text even when they're all digits: tracking numbers, zip codes, phone numbers, SKUs.
+const TEXT_FIELD = /(tracking|zip|postal|postcode|phone|sku|serial|batch|lot|code|account|card|_id$|^id$|number$)/i;
+
 /** CSV cells are strings; obvious numbers, booleans, nulls and JSON lists/objects are converted. */
-function csvValue(s) {
+function csvValue(s, field = "") {
   const t = s.trim();
-  // Only short numbers become numbers: tracking numbers, zip codes and ids stay text (precision and leading zeros).
-  if (/^-?(0|[1-9]\d{0,11})(\.\d{1,4})?$/.test(t)) return Number(t);
+  if (TEXT_FIELD.test(field)) return t === "" || t === "null" ? null : t;
+  // Only short numbers become numbers: long digit strings stay text (precision and leading zeros).
+  if (/^-?(0|[1-9]\d{0,8})(\.\d{1,4})?$/.test(t)) return Number(t);
   if (t === "true" || t === "false") return t === "true";
   if (t === "" || t === "null") return null;
   if (t.startsWith("[") || t.startsWith("{")) { try { return JSON.parse(t); } catch { return t; } }

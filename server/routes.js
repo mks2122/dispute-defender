@@ -12,7 +12,7 @@ import { parseRecords } from "./store/import.js";
 import { saveImportedRecords, audit } from "./db.js";
 import { isRefilling } from "./paypal/seed.js";
 import { syncOnce, syncStatus, hasSyncedOnce } from "./sync.js";
-import { isAuthed, login, loginLimiter, requireAuth } from "./auth.js";
+import { isAuthed, login, loginLimiter, requireAuth, viewAuth } from "./auth.js";
 import { PayPalError } from "./paypal/client.js";
 import { log } from "./log.js";
 
@@ -29,10 +29,10 @@ const safeRows = (rows) => rows.flatMap((r) => {
 
 api.get("/health", (_req, res) => res.json({ ok: true }));
 
-api.get("/session", (req, res) => res.json({ authed: isAuthed(req), writesEnabled: !!config.demoPasscode, ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "mock" } }));
+api.get("/session", (req, res) => res.json({ authed: isAuthed(req), privateView: config.privateView, writesEnabled: !!config.demoPasscode, ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "mock" } }));
 api.post("/session", loginLimiter, login);
 
-api.get("/disputes", (_req, res) => {
+api.get("/disputes", viewAuth, (_req, res) => {
   const batch = activeBatch();
   res.json({
     batch,
@@ -62,7 +62,7 @@ const itemFor = (id) => {
   const row = getDisputeRow(id);
   try { return row ? toRow(row).item : "Unknown order"; } catch { return "Unknown order"; }
 };
-api.get("/activity", (_req, res) => {
+api.get("/activity", viewAuth, (_req, res) => {
   res.json({
     // Re-runs replace an analysis, so only the latest "AI analysis completed" per dispute is shown.
     items: recentActivity(200).filter((a, i, all) => ACTIVITY[a.event] && (a.event !== "ai_analyzed" || all.findIndex((b) => b.event === "ai_analyzed" && b.dispute_id === a.dispute_id) === i)).slice(0, 60).map((a) => ({
@@ -72,7 +72,7 @@ api.get("/activity", (_req, res) => {
 });
 
 // Environment and health for the Settings page (no secrets: names and states only).
-api.get("/status", (_req, res) => {
+api.get("/status", viewAuth, (_req, res) => {
   const provider = aiProviderName();
   res.json({
     paypal: { environment: isSandbox() ? "Sandbox" : "Live", merchantId: getMeta("merchant_id") ? `••••${getMeta("merchant_id").slice(-4)}` : null },
@@ -84,7 +84,7 @@ api.get("/status", (_req, res) => {
   });
 });
 
-api.get("/disputes/:id", (req, res) => {
+api.get("/disputes/:id", viewAuth, (req, res) => {
   const row = getDisputeRow(req.params.id);
   if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   try { res.json(toCase(row)); }
@@ -95,6 +95,10 @@ api.get("/disputes/:id", (req, res) => {
 api.post("/disputes/:id/analyze", requireAuth, wrap(async (req, res) => {
   const row = getDisputeRow(req.params.id);
   if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
+  // Each run with a real model costs money: one re-run per dispute per cooldown.
+  const last = latestAnalysis(row.id);
+  const wait = last ? Date.parse(last.created_at) + config.analyzeCooldownMs - Date.now() : 0;
+  if (wait > 0) return res.status(429).json({ error: `This dispute was just analysed. Try again in ${Math.ceil(wait / 1000)} seconds.` });
   await analyzeDispute(row.id);
   res.json(toCase(getDisputeRow(row.id)));
 }));
@@ -113,7 +117,7 @@ api.post("/disputes/:id/records", requireAuth, wrap(async (req, res) => {
 }));
 
 // Live fact-check of the seller's edited draft. Pure and side-effect free.
-api.post("/disputes/:id/validate", (req, res) => {
+api.post("/disputes/:id/validate", viewAuth, (req, res) => {
   const row = getDisputeRow(req.params.id);
   if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   if (typeof req.body?.notes !== "string") return res.status(400).json({ error: "notes must be a string." });

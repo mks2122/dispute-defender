@@ -108,14 +108,15 @@ export async function listAllDisputes({ maxPages = 20 } = {}) {
 export const linkRels = (dispute) => (dispute?.links ?? []).map((l) => l.rel);
 
 /**
- * Submit seller evidence (multipart: `input` JSON + one `evidence-file`). NEVER retried automatically:
- * a timeout here means "unknown", and the caller reconciles by re-reading the dispute.
+ * Submit seller evidence (multipart: `input` JSON + one `evidence-file` part per file: the PDF packet and the
+ * seller's photos). NEVER retried automatically: a timeout here means "unknown", and the caller reconciles by
+ * re-reading the dispute.
  */
-export function provideEvidence(id, { evidences, file }) {
+export function provideEvidence(id, { evidences, files = [] }) {
   const form = () => {
     const fd = new FormData();
     fd.append("input", new Blob([JSON.stringify({ evidences })], { type: "application/json" }));
-    if (file) fd.append("evidence-file", new Blob([file.data], { type: file.type }), file.name);
+    for (const f of files) fd.append("evidence-file", new Blob([f.data], { type: f.type }), f.name);
     return fd;
   };
   return ppRequest("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/provide-evidence`, { form });
