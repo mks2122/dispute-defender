@@ -45,7 +45,7 @@
    - It polls each dispute until it reaches WAITING (15-minute timeout) and records each dispute ID along with the batch.
    - A pool of about 6 WAITING disputes is created ahead of time. **The judge-facing "Reset demo" hands out disputes from the pool**, and the pool is refilled by a cron run or manually before judging.
 7. **Security:** a demo passcode (session cookie) on every POST, and a token plus rate limit on seed. **No webhook route**; polling only.
-8. **Render deploy (Starter tier), README, MIT LICENSE, video.**
+8. **Render deploy (free tier), README, MIT LICENSE, video.**
 
 ### Should ship
 9. **AI-agent purchase disputes** (UNAUTHORISED via 4837, with the buyer's note saying "my AI agent bought this"). The app checks the purchase against the stored mandate (agent ID, allowed categories, spend cap, expiry, consent time, signature hash), and attaches the mandate as a document.

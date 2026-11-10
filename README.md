@@ -56,6 +56,7 @@ For development, run `npm run dev` (API) and `npm run dev:web` (Vite on :5173) t
 - **Secrets** are set in the Render dashboard: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `DEMO_PASSCODE`, and optionally `OPENAI_API_KEY`.
 - **The local database is only a cache.** On a fresh boot the app rebuilds its state from PayPal.
 - **Seed once, from your machine,** against the same sandbox app: `npm run seed`.
+- **Free plan:** the service sleeps after 15 minutes without traffic, and the next visit takes about a minute to wake it. Open the URL a minute before you demo. Each wake rebuilds the cache and re-analyses the open disputes (about 3¢ with OpenAI, nothing with the built-in model).
 
 ## Demo scenarios
 | Dispute | What it shows |

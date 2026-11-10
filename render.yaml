@@ -2,7 +2,7 @@ services:
   - type: web
     name: dispute-defender
     runtime: node
-    plan: starter            # free tier sleeps after 15 min idle (~50s cold start for judges)
+    plan: free               # sleeps after 15 min idle; first request wakes it (~1 min). Wake it before judging/recording.
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
