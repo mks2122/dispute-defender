@@ -36,6 +36,8 @@ export default [
       "no-restricted-imports": ["error", {
         paths: [
           { name: "node:sqlite", message: "Only server/db.js may use SQLite." },
+          { name: "@libsql/client", message: "Only server/mirror.js may talk to Turso." },
+          { name: "@libsql/client/web", message: "Only server/mirror.js may talk to Turso." },
           { name: "./db.js", importNames: ["__testDb"], message: "Test-only handle. SQL belongs in server/db.js." },
           { name: "../db.js", importNames: ["__testDb"], message: "Test-only handle. SQL belongs in server/db.js." },
         ],
@@ -43,7 +45,7 @@ export default [
     },
   },
   { files: ["server/log.js"], rules: { "no-console": "off" } },
-  { files: ["server/db.js"], rules: { "no-restricted-imports": "off" } },
+  { files: ["server/db.js", "server/mirror.js"], rules: { "no-restricted-imports": "off" } },
   {
     // Only the integration layer may make network calls.
     files: ["server/**/*.js"],

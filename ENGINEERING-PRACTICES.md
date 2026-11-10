@@ -11,7 +11,7 @@ These rules apply to every change. Most are enforced by `npm run check`, which r
 ## 2. Code style
 - Node 22 ESM, plain JavaScript, no TypeScript build step. JSDoc goes on exported functions whose contract isn't obvious.
 - Use named exports. The exceptions are React components and Vite config.
-- Modules stay small and single-purpose, and they respect the layer rules in ARCHITECTURE §4 (dependencies point down; only the integration layer does network I/O; only `db.js` runs SQL).
+- Modules stay small and single-purpose, and they respect the layer rules in ARCHITECTURE §4 (dependencies point down; only the integration layer does network I/O; only `db.js` runs SQL on the local cache; only `mirror.js` talks to Turso).
 - Comments explain **why**, never what. Remove dead code; don't comment it out.
 - Leave no unused variables or imports (eslint `no-unused-vars`).
 - Server code logs only through `server/log.js`, which lint enforces with `no-console`. Use `log.info/warn/error(scope, msg, err)`.

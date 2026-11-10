@@ -21,6 +21,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@libsql/client": "0.15.15",
     "@vitejs/plugin-react": "^4.3.4",
     "ag-grid-community": "^33.3.2",
     "ag-grid-react": "^33.3.2",

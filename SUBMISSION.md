@@ -28,7 +28,7 @@ Dispute Defender connects to a seller's PayPal disputes, then for each dispute:
   - The sandbox `process-chargeback` endpoint, used to generate 8 realistic scenarios.
 - **AI:** OpenAI **GPT-5.6 Luna** with a strict JSON schema and vision on listing and buyer photos. Prompts keep TRUSTED seller records apart from UNTRUSTED buyer content. A deterministic built-in model with the same contract keeps the demo working without a key, and takes over automatically if the model fails.
 - **Code decides what must be exact:** the mandate check, expected value, injection detection, unverified-claim detection and the fact-checking guard are plain, tested code, not model output.
-- **Stack:** Node 22 + Express, built-in SQLite as a rebuildable cache (PayPal is the source of truth), React + AG Grid for the dashboard, and Render deploy config.
+- **Stack:** Node 22 + Express, built-in SQLite as a rebuildable cache (PayPal is the source of truth) with an optional Turso mirror so history survives restarts, React + AG Grid for the dashboard, and Render deploy config.
 - **Engineering:** 80 unit tests (contract tests against fake PayPal and fake OpenAI servers, guard bypass attempts, the submit race, a secret scan), lint rules that enforce the architecture's layers, and a reviewer agent plus an adversarial edge-case agent gating every milestone.
 
 ## Challenges
@@ -56,7 +56,7 @@ In dispute handling, the AI's job is judgement and writing. Exact facts belong t
 - Shopify and eBay order import.
 
 ## Built with
-paypal-disputes-api, paypal-orders-api, openai, gpt-5.6-luna, node.js, express, sqlite, react, ag-grid, vite, render
+paypal-disputes-api, paypal-orders-api, openai, gpt-5.6-luna, node.js, express, sqlite, turso, react, ag-grid, vite, render
 
 ## Testing instructions for judges
 1. Open the hosted URL. It runs on Render's free plan, so the first visit after a quiet spell can take about a minute to load. If you're running it yourself, follow the README's "Run it locally".

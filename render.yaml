@@ -24,4 +24,8 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: DB_PATH
-        value: /tmp/dispute-defender.db   # cache only; rebuilt from PayPal on boot
+        value: /tmp/dispute-defender.db   # working cache; wiped on sleep/redeploy
+      - key: TURSO_DATABASE_URL           # optional durable mirror: history survives sleep/redeploy
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
