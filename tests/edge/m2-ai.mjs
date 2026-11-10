@@ -11,7 +11,7 @@ const list = (await j("/api/disputes")).b.rows;
 const by = (s) => list.find((r) => r.scenario === s);
 const U = by("unauth-history"), P = by("inr-phonecase"), V = by("nad-jacket");
 const get = async (id) => (await j("/api/disputes/" + id)).b;
-const pp = async (id) => { const d = await get(id); return { status: d.status, evidences: JSON.stringify(d.evidences ?? d.evidence ?? null).length, actions: d.actions, outcome: d.outcome, updatedAt: d.updatedAt }; };
+const pp = async (id) => { const d = await get(id); return { status: d.status, evidences: JSON.stringify(d.evidences ?? d.evidence ?? null).length, actions: [...(d.actions ?? [])].sort() /* PayPal lists links in any order */, outcome: d.outcome, updatedAt: d.updatedAt }; };
 
 // ---- validate
 const u = await get(U.id);

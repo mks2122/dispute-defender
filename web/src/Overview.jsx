@@ -41,7 +41,7 @@ export default function Overview({ rows, loading, onOpen }) {
         <Kpi label="At risk" value={money(m.atRisk)} sub={`${m.open} open dispute${m.open === 1 ? "" : "s"}`} />
         <Kpi label="Expected recovery" value={money(Math.round(m.recover * 100) / 100)} sub="if you fight the recommended ones" />
         <Kpi label="Needs response" value={m.needs.length} sub="before PayPal's deadline" />
-        <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="every fact traced to a record" />
+        <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="checked against your records" />
       </section>
 
       <div className="grid-2">

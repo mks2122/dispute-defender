@@ -105,7 +105,7 @@ async function doAnalyze(disputeId) {
   // Code-level backstop for prompt injection: an injection that pushes for a refund and a REFUND verdict
   // together deserve a second look, whatever the model's reasons.
   if ((a.injection_detected || input.injection) && a.recommendation === "REFUND") warnings.push("The buyer's text tried to steer the AI, and this recommendation is what it asked for. Check that the reasoning stands on your records alone before refunding.");
-  if (a.confidence_band !== bandFor(a.win_probability)) warnings.push("The model's confidence band doesn't match its probability; showing the band computed from the probability.");
+  // The band is always recomputed from the probability below; a mismatch isn't worth the seller's attention.
 
   const payload = {
     ...a,

@@ -163,8 +163,8 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           <section className="card card-body section">
             <h4>Watch-outs</h4>
             <ul className="notes">
-              {a.injection_detected && <li><span className="warn-text"><Icon name="alert" size={14} /></span><span>The buyer's text tried to give the AI instructions. They were ignored.</span></li>}
-              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="warn-text"><Icon name="alert" size={14} /></span><span>{u}.</span></li>)}
+              {a.injection_detected && <li><span className="warn-text"><Icon name="alert" size={14} /></span><span>The buyer's message or photo tried to give the AI instructions. They were ignored.</span></li>}
+              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="warn-text"><Icon name="alert" size={14} /></span><span>{/[.!?]["”]?$/.test(u) ? u : `${u}.`}</span></li>)}
               {a.warnings.map((w) => <li key={w}><span className="faint"><Icon name="alert" size={14} /></span><span className="muted">{w}</span></li>)}
             </ul>
           </section>
