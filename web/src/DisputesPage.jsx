@@ -39,13 +39,13 @@ const OrderCell = ({ data, context }) => (
     <Thumb src={data.image} />
     <div className="cell-stack">
       <button className="cell-title link-btn" onClick={(e) => { e.stopPropagation(); context.onOpen(data.id); }}>{data.item}</button>
-      <div className="cell-sub">{data.buyer}{data.tags.includes("agent purchase") && <span className="badge">AI agent</span>}</div>
+      <div className="cell-sub">{data.buyer}{data.tags.includes("agent purchase") && <span className="badge">AI agent</span>}{data.recordsSource === "imported" && <span className="badge">Imported records</span>}</div>
     </div>
   </div>
 );
 const VerdictCell = ({ data }) => (
   <div className="cell-center">
-    {data.ai ? <><span className={`verdict-text ${data.ai.recommendation === "REFUND" ? "refund" : ""}`}>{verdictWord(data.ai.recommendation)}</span><span className="faint">· {bandWord(data.ai.band)}</span></> : <span className="faint">Analyzing…</span>}
+    {data.ai ? <><span className={`verdict-text ${data.ai.recommendation === "REFUND" ? "refund" : ""}`}>{verdictWord(data.ai.recommendation)}</span><span className="faint">· {bandWord(data.ai.band)}</span></> : <span className="faint">{data.recordsSource === "none" ? "Add your records" : "Analyzing…"}</span>}
     {data.ai?.injection && <span className="warn-text" title="The buyer's text tried to instruct the AI; ignored"><Icon name="alert" size={14} /></span>}
   </div>
 );
@@ -121,7 +121,7 @@ export default function DisputesPage({ title, rows, preset, loading, onOpen, sel
                   </span>
                   <span className="row-right">
                     <div className="num">{money(r.amount, r.currency)}</div>
-                    <div className="small muted">{r.ai ? verdictWord(r.ai.recommendation) : "…"}</div>
+                    <div className="small muted">{r.ai ? verdictWord(r.ai.recommendation) : r.recordsSource === "none" ? "Add records" : "…"}</div>
                   </span>
                 </button>
               ))}

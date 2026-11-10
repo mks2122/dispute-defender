@@ -112,13 +112,33 @@ async function doAnalyze(disputeId) {
     ...a,
     confidence_band: bandFor(a.win_probability),
     injection_detected: a.injection_detected || input.injection,
-    unverified_buyer_claims: [...new Set([...input.unverifiedClaims, ...a.unverified_buyer_claims])],
+    unverified_buyer_claims: mergeClaims(input.unverifiedClaims, a.unverified_buyer_claims),
     ev, guard, warnings,
     mandate: input.mandate,
   };
   const id = saveAnalysis({ disputeId, provider, model: out.model, fallback, latencyMs, usage: out.usage, payload });
   audit(disputeId, "ai_analyzed", { provider, model: out.model, fallback, latency_ms: latencyMs, usage: out.usage, recommendation: a.recommendation, guard_ok: guard.ok });
   return id;
+}
+
+const claimWords = (s) => new Set(String(s).toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+const STOP = new Set(["buyer", "says", "your", "records", "nothing", "supports", "this", "which", "that", "with", "seller"]);
+/**
+ * Code-detected claims first, then the model's, minus any the code already covers (same tracking number or
+ * record, or mostly the same words), so each claim is listed once.
+ */
+export function mergeClaims(fromCode, fromModel) {
+  const out = [...new Set(fromCode)];
+  const covered = out.map((c) => [...claimWords(c)].filter((w) => !STOP.has(w)));
+  for (const m of fromModel) {
+    const words = [...claimWords(m)].filter((w) => !STOP.has(w));
+    const dup = out.includes(m) || covered.some((c) => {
+      const shared = words.filter((w) => c.includes(w));
+      return shared.some((w) => /\d/.test(w) && w.length >= 6) || (words.length > 0 && shared.length / Math.min(words.length, c.length || 1) >= 0.6);
+    });
+    if (!dup) { out.push(m); covered.push(words); }
+  }
+  return out;
 }
 
 /** Sync hook: analyse disputes that have no analysis yet. Never throws. */

@@ -29,6 +29,7 @@ export const api = {
   login: (passcode) => request("POST", "/session", { passcode }),
   reset: () => request("POST", "/admin/reset"),
   analyze: (id) => request("POST", `/disputes/${enc(id)}/analyze`),
+  importRecords: (id, text) => request("POST", `/disputes/${enc(id)}/records`, { text }),
   validate: (id, notes, signal) => request("POST", `/disputes/${enc(id)}/validate`, { notes }, { signal }),
   submit: (id, body) => request("POST", `/disputes/${enc(id)}/submit`, body),
   activity: () => request("GET", "/activity"),

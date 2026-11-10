@@ -44,3 +44,14 @@ test("analyzeDispute is single-flight per dispute", async () => {
   assert.equal(a, b);
   await a;
 });
+
+test("mergeClaims lists each unverified claim once, preferring the code's wording", async () => {
+  const { mergeClaims } = await import("../../server/ai/analyze.js");
+  const code = [
+    "Buyer cites tracking number 1Z999AA10123456784, which is not in your records",
+    "Buyer says the seller agreed to a refund; nothing in your records supports this",
+    "Buyer says the item was returned; nothing in your records supports this",
+  ];
+  const model = ["The seller agreed to a refund in chat.", "Tracking number 1Z999AA10123456784 shows the item returned.", "The item was returned to the seller.", "The throw was the wrong size."];
+  assert.deepEqual(mergeClaims(code, model), [...code, "The throw was the wrong size."]);
+});

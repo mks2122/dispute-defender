@@ -58,7 +58,7 @@ export default function Overview({ rows, loading, onOpen }) {
                       <div className="row-sub">{r.reasonLabel} · {money(r.amount, r.currency)}</div>
                     </span>
                     <span className="row-right">
-                      <div className="verdict-text">{r.ai ? verdictWord(r.ai.recommendation) : "Analyzing…"}</div>
+                      <div className="verdict-text">{r.ai ? verdictWord(r.ai.recommendation) : r.recordsSource === "none" ? <span className="faint">Add records</span> : "Analyzing…"}</div>
                       <div className="small faint">{!r.ai ? "" : r.ai.recommendation === "REFUND" ? `Refund ${money(r.amount, r.currency)}` : `${signedMoney(r.ai.ev)} expected`}</div>
                     </span>
                   </button>
