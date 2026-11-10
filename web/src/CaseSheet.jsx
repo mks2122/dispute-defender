@@ -237,7 +237,12 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
                   {guardErrors ? <span className="error-text">Fix the issues below before sending</span>
                     : check?.ok ? <span className="guard-ok"><Icon name="check" size={13} /> {check.verified ? `${check.verified} fact${check.verified === 1 ? "" : "s"} verified against your records` : "No unverifiable facts"}</span>
                       : <span>Checking facts…</span>}
-                  <span className={`num ${overLimit ? "error-text" : ""}`}>{notes.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}</span>
+                  <span className="editor-actions">
+                    {original[decision] && notes !== original[decision] && (
+                      <button className="link-btn" onClick={() => { setNotes(original[decision]); setConfirming(false); setServerErrors(null); }}>{decision === "REFUND" && a?.recommendation !== "REFUND" ? "Restore default note" : "Restore AI draft"}</button>
+                    )}
+                    <span className={`num ${overLimit ? "error-text" : ""}`}>{notes.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}</span>
+                  </span>
                 </div>
                 {guardErrors && <ul className="guard-errors" role="alert">{guardErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
               </>
