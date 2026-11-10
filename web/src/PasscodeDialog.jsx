@@ -42,7 +42,7 @@ export default function PasscodeDialog({ onCancel, onSuccess }) {
     <div className="scrim center" onClick={onCancel}>
       <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="pc-title">
         <div className="dialog-icon"><Icon name="lock" size={24} /></div>
-        <h3 id="pc-title">Enter the demo passcode</h3>
+        <h3 id="pc-title">Enter your passcode</h3>
         <p>Actions that change a PayPal dispute need the passcode from the project's Devpost page.</p>
         <input autoFocus type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder="Passcode" aria-label="Passcode" autoComplete="current-password" />
         {error && <div className="form-error" role="alert">{error}</div>}

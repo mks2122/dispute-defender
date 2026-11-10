@@ -39,13 +39,13 @@ api.get("/disputes", (_req, res) => {
     pool: poolSummary(),
     refilling: isRefilling(),
     sync: syncStatus(),
-    ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "Demo AI model" },
+    ai: { provider: aiProviderName(), model: aiProviderName() === "openai" ? config.aiModel : "Rules engine" },
   });
 });
 
 // Activity feed for the dashboard. Only these event names are shown to users.
 const ACTIVITY = {
-  seeded: "Dispute created in the PayPal sandbox",
+  seeded: "Dispute opened in PayPal",
   ai_analyzed: "AI analysis completed",
   evidence_submitted: "Evidence submitted to PayPal",
   refund_accepted: "Refund sent through PayPal",
@@ -77,7 +77,7 @@ api.get("/status", (_req, res) => {
 
 api.get("/disputes/:id", (req, res) => {
   const row = getDisputeRow(req.params.id);
-  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   try { res.json(toCase(row)); }
   catch (e) { log.error("view", `unreadable case ${row.id}`, e); res.status(500).json({ error: "This dispute's data is unreadable right now; it refreshes on the next sync." }); }
 });
@@ -85,7 +85,7 @@ api.get("/disputes/:id", (req, res) => {
 // Re-run the AI on demand (costs money with a real model, so it needs the passcode).
 api.post("/disputes/:id/analyze", requireAuth, wrap(async (req, res) => {
   const row = getDisputeRow(req.params.id);
-  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   await analyzeDispute(row.id);
   res.json(toCase(getDisputeRow(row.id)));
 }));
@@ -93,7 +93,7 @@ api.post("/disputes/:id/analyze", requireAuth, wrap(async (req, res) => {
 // Live fact-check of the seller's edited draft. Pure and side-effect free.
 api.post("/disputes/:id/validate", (req, res) => {
   const row = getDisputeRow(req.params.id);
-  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found in this demo." });
+  if (!row || row.batch === "retired") return res.status(404).json({ error: "Dispute not found." });
   if (typeof req.body?.notes !== "string") return res.status(400).json({ error: "notes must be a string." });
   if (req.body.notes.length > 4000) return res.status(400).json({ error: "The response is far over PayPal's 2,000-character limit." });
   const a = latestAnalysis(row.id);

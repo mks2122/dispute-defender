@@ -257,7 +257,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
               <dt>Allowed actions</dt><dd>{c.paypal.links.filter((l) => l !== "self").join(", ") || "none"}</dd>
               <dt>Evidence requested</dt><dd>{c.requestedFromSeller.join(", ") || "—"}</dd>
               {c.paypal.outcome && (<><dt>Outcome</dt><dd>{c.paypal.outcome.outcome_code}</dd></>)}
-              {a && (<><dt>AI</dt><dd>{a.provider === "openai" ? a.model : "Built-in demo model"}{a.fallback ? ` (fallback: ${a.fallback})` : ""} · {a.latencyMs} ms</dd></>)}
+              {a && (<><dt>AI</dt><dd>{a.provider === "openai" ? a.model : "Built-in rules engine"}{a.fallback ? ` (fallback: ${a.fallback})` : ""} · {a.latencyMs} ms</dd></>)}
             </dl>
             {c.audit.length > 0 && <ul className="feed" style={{ marginTop: 12 }}>{c.audit.map((x, i) => <li key={i} style={{ paddingLeft: 0, paddingRight: 0 }}><span className="tick" /><span>{x.event.replace(/_/g, " ")}</span><time>{new Date(x.at).toLocaleString()}</time></li>)}</ul>}
           </details>
@@ -288,7 +288,7 @@ function Verdict({ a, c, onRerun, busy, confirmDiscard }) {
     <section className="card" aria-label="AI recommendation">
       <div className="verdict-head">
         <div>
-          <div className="verdict-kicker"><Icon name="bot" size={14} /> Recommendation · {a.provider === "openai" ? a.model : "Demo model"}{a.fallback && <Badge tone="warn" title={`The configured model failed (${a.fallback}); the demo model answered.`}>Fallback</Badge>}</div>
+          <div className="verdict-kicker"><Icon name="bot" size={14} /> Recommendation · {a.provider === "openai" ? a.model : "Built-in rules engine"}{a.fallback && <Badge tone="warn" title={`The configured model failed (${a.fallback}); the built-in rules engine answered.`}>Fallback</Badge>}</div>
           <div className="verdict-word">{fight ? "Fight this dispute" : "Refund the buyer"}</div>
           <p className="verdict-summary">{a.summary}</p>
         </div>
