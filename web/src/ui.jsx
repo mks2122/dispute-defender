@@ -20,7 +20,19 @@ const paths = {
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zm9 2-4.3-4.3",
   arrow: "M9 6l6 6-6 6",
   doc: "M7 3h7l5 5v13H7zM14 3v5h5",
+  sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z",
 };
+
+/** Brand mark: a "D" whose bowl tapers to a shield's point (Dispute Defender). Also in public/favicon.svg. */
+export const LOGO_PATH = "M5 3h7.2C16.5 3 19 5.6 19 9.6v1.6c0 4.9-3.3 8.6-7.8 9.8L5 22zM8.4 6.4v11.2l2.6-1C13.9 15.5 15.6 13.6 15.6 11V9.8c0-2.2-1.3-3.4-3.6-3.4z";
+export function LogoMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d={LOGO_PATH} fill="currentColor" fillRule="evenodd" />
+    </svg>
+  );
+}
 
 export function Icon({ name, size = 16, stroke = 1.8, className = "", title }) {
   return (
