@@ -59,7 +59,7 @@ In dispute handling, the AI's job is judgement and writing. Exact facts belong t
 paypal-disputes-api, paypal-orders-api, openai, gpt-5.6-luna, node.js, express, sqlite, react, ag-grid, vite, render
 
 ## Testing instructions for judges
-1. Open the hosted URL. If you're running it yourself, follow the README's "Run it locally".
+1. Open the hosted URL. It runs on Render's free plan, so the first visit after a quiet spell can take about a minute to load. If you're running it yourself, follow the README's "Run it locally".
 2. **Overview** shows live PayPal sandbox disputes ranked by value. Open **Leather bifold wallet**.
 3. Read the verdict, click a citation chip (for example `SHP-1001`) to jump to the record, then try typing a fake tracking number into the response. The guard blocks it.
 4. Click **Submit evidence → Confirm and send**. The passcode is in the submission notes. The dispute's PayPal status changes.
