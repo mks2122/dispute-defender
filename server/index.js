@@ -7,6 +7,7 @@ import { api } from "./routes.js";
 import { startSyncLoop } from "./sync.js";
 import { stopRefill } from "./paypal/seed.js";
 import { closeDb } from "./db.js";
+import { startMirror, stopMirror } from "./mirror.js";
 import { log } from "./log.js";
 
 const app = express();
@@ -33,6 +34,8 @@ app.use((req, res, next) => {
   res.sendFile(indexHtml);
 });
 
+// Restore saved history before serving or syncing, so the first sync builds on it instead of racing it.
+await startMirror();
 const server = app.listen(config.port, () => log.info("server", `Dispute Defender on http://localhost:${config.port} (PayPal: ${config.paypalBase})`));
 const syncTimer = config.clientId ? startSyncLoop(config.syncIntervalMs) : null;
 
@@ -44,7 +47,8 @@ function shutdown(signal) {
   log.info("server", `${signal} received, shutting down`);
   if (syncTimer) clearInterval(syncTimer);
   stopRefill();
-  server.close(() => {
+  server.close(async () => {
+    await stopMirror();
     closeDb();
     process.exit(0);
   });

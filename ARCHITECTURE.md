@@ -36,6 +36,14 @@ A seller-side agent for PayPal disputes. It does five things:
 
 **Invariant:** losing the SQLite file loses nothing that matters. On a fresh boot, sync rebuilds the pool and the inbox from PayPal plus the catalog. Render keeps the DB in `/tmp` on purpose.
 
+**Optional durable mirror (Turso).** What a wipe *does* lose is our own history: the activity feed, the AI analyses (re-run, and possibly re-worded) and the reset cooldown. When `TURSO_DATABASE_URL` is set, `server/mirror.js` keeps a copy in Turso (hosted libSQL, free tier):
+- **Boot:** before serving or syncing, the local cache is replaced with the rows saved in Turso (one transaction; `locks` are cleared, never restored).
+- **Writes:** every write in `db.js` reports the row it changed; the mirror sends that row's *latest* state (upsert, or delete if gone) in one atomic batch, coalesced over 300 ms and retried every 5 s while Turso is down.
+- **Shutdown:** pending changes are flushed (bounded by 5 s) before the DB closes.
+- **Turso down at boot:** the app starts on the empty cache without mirroring, so a partial cache never overwrites the saved history.
+
+The local SQLite stays the working database, so the atomic checks (submission claims, locks) are still single synchronous statements. The mirror is write-behind: a crash can lose the last fraction of a second of history, never a PayPal action, which PayPal itself records.
+
 ## 4. Components and boundaries
 Server modules form layers, and **dependencies only point downward**:
 
@@ -44,11 +52,11 @@ Server modules form layers, and **dependencies only point downward**:
 | HTTP | `index.js`, `routes.js`, `auth.js` | everything below | Routing, auth, error shape, security headers, shutdown |
 | Application | `pool.js`, `sync.js`, `view.js`, `ai/*`, `submit.js` | integration and data layers | Batch, pool and reset rules, sync state machine, view models, AI orchestration, the approval gate |
 | Integration | `paypal/client.js`, `paypal/seed.js`, `ai/openai.js` | data layer | All network I/O to PayPal and OpenAI (timeouts, retries, error types), plus sandbox seeding |
-| Data | `db.js`, `disputes.js` (pure predicates), `util.js`, `log.js`, `config.js`, `store/catalog.js` | nothing above | Persistence, locks, shared predicates, logging, configuration, static seller data |
+| Data | `db.js`, `mirror.js` (optional Turso copy), `disputes.js` (pure predicates), `util.js`, `log.js`, `config.js`, `store/catalog.js` | nothing above | Persistence, locks, shared predicates, logging, configuration, static seller data |
 
 Rules, with the check that enforces each:
 - **Only the integration layer makes network calls.** Lint bans `fetch` everywhere in `server/` except `server/paypal/**` and `server/ai/**`. Only `paypal/client.js` calls PayPal.
-- **Only `db.js` runs SQL.** Lint bans importing `node:sqlite` elsewhere. The raw handle is exported only as `__testDb`, and lint bans that import in server code.
+- **Only `db.js` runs SQL on the local cache, and only `mirror.js` talks to Turso.** Lint bans importing `node:sqlite` or `@libsql/client` elsewhere. The raw handle is exported only as `__testDb`, and lint bans that import in server code.
 - **Only `log.js` writes to the console**, enforced by `no-console`. It logs PayPal errors as status, issue and debug_id only, never response bodies.
 - **The web app talks only to `/api`.** It never sees PayPal or OpenAI credentials, and `npm test` scans the build and every committable file for secrets.
 - **Routes stay thin.** They validate input, call one application function, and shape the response. Business rules such as the reset cooldown live in `pool.js`.
@@ -236,6 +244,7 @@ Render web service (`render.yaml`): `npm ci && npm run build`, then `npm start`,
 | 1 | `node:sqlite` (built in) | No native build on Windows or Render | better-sqlite3 (native toolchain) |
 | 2 | Polling instead of webhooks | Removes the signature-verification surface. 30 s latency is fine for a seller. | Webhooks (agreed cut in the debate) |
 | 3 | `custom_id` linking plus a committed catalog | The state survives a DB wipe or redeploy | Render persistent disk |
+| 3b | Turso as a write-behind mirror, not the primary DB | History survives free-tier sleep; claims and locks stay synchronous and local | Making every DB call async against a remote DB (rewrites the race-sensitive submit path) |
 | 4 | Pre-warmed pool | Chargebacks need about 5 min to become actionable, so judges must never wait | Seeding on demand |
 | 5 | Only actions linked by PayPal | Avoids 422s and matches what PayPal allows (no partial offers on chargebacks) | Hard-coded action list |
 | 6 | Sorting by EV at risk | The sandbox due date is fixed for every dispute, so a deadline sort would be fake | A simulated deadline |

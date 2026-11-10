@@ -19,6 +19,9 @@ export const config = {
   demoPasscode: process.env.DEMO_PASSCODE || (isProd ? "" : "demo"),
   sessionSecret: process.env.SESSION_SECRET || randomBytes(32).toString("hex"),
   dbPath: process.env.DB_PATH || "data/app.db",
+  // Optional durable mirror of the cache (Turso). Without it, history is lost whenever the host wipes the disk.
+  tursoUrl: process.env.TURSO_DATABASE_URL || "",
+  tursoToken: process.env.TURSO_AUTH_TOKEN || "",
   syncIntervalMs: num("SYNC_INTERVAL_MS", 30_000),
   poolPerScenario: num("POOL_PER_SCENARIO", 1),
   resetCooldownMs: num("RESET_COOLDOWN_MS", 120_000),
