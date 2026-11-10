@@ -47,7 +47,8 @@ test("toRow: resolved and refunded disputes have nothing at risk", () => {
 
 test("toRow: unknown scenario and missing fields are tolerated", () => {
   const r = toRow(rowFor({ dispute_id: "PP-T-BARE", status: "OPEN" }, null));
-  assert.equal(r.item, "Unknown order");
+  assert.match(r.item, /^PayPal order /);
+  assert.equal(r.recordsSource, "none");
   assert.equal(r.buyer, "—");
   assert.deepEqual(r.actions, []);
 });

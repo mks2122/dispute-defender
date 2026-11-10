@@ -70,7 +70,10 @@ test("poolNeeds ignores disputes stuck processing for more than 15 minutes", () 
 
 test("classifyNew: what happens to a dispute first seen after a DB wipe", () => {
   assert.equal(classifyNew(dispute(), "nad-wallet"), "pool");
-  assert.equal(classifyNew(dispute(), null), "retired"); // not ours
+  // Not a store order: shown as "external" while it still needs a response, so the seller can import records.
+  assert.equal(classifyNew(dispute(), null), "external");
+  assert.equal(classifyNew(dispute({ status: "RESOLVED" }), null), "retired");
+  assert.equal(classifyNew(dispute({ status: "UNDER_REVIEW", evidences: [{ source: "SUBMITTED_BY_SELLER" }] }), null), "retired");
   assert.equal(classifyNew(dispute({ status: "RESOLVED" }), "nad-wallet"), "retired");
   assert.equal(classifyNew(dispute({ status: "UNDER_REVIEW", evidences: [{ source: "SUBMITTED_BY_SELLER" }] }), "nad-wallet"), "retired");
   assert.equal(classifyNew(dispute({ status: "UNDER_REVIEW", ageMin: 3 }), "nad-wallet"), "pool");

@@ -135,3 +135,9 @@ test("refund notes are fact-checked too", async () => {
   await assert.rejects(submitDecision(current.dispute_id, { decision: "REFUND", notes: "We already refunded $999 last week.", analysisId: analysisId() }), { status: 422 });
   assert.equal(calls.length, 0);
 });
+
+test("renderPdf keeps typographic punctuation the model writes (no 'buyer?s')", () => {
+  const pdf = renderPdf({ title: "Evidence", sections: [{ heading: "Seller response", body: "The buyer’s “claim” — delivered on 2026-10-25… €5" }] }).toString("latin1");
+  assert.match(pdf, /buyer\x92s \x93claim\x94 \x97 delivered/);
+  assert.doesNotMatch(pdf, /buyer\?s/);
+});

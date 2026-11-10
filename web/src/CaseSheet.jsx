@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { Icon, Status, Thumb, Badge, money, signedMoney, dueLabel, bandWord } from "./ui.jsx";
+import ImportPanel from "./ImportPanel.jsx";
 
 const MAX_NOTES = 2000;
 const REFUND_NOTE = "We accept this claim and are refunding the buyer in full.";
@@ -76,6 +77,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   const [check, setCheck] = useState(a ? a.guard : null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [replacing, setReplacing] = useState(false);
   const [serverErrors, setServerErrors] = useState(null);
   const bodyRef = useRef(null);
 
@@ -139,6 +141,8 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
   const guardErrors = serverErrors ?? (check && !check.ok ? check.errors : null);
   const overLimit = notes.length > MAX_NOTES;
   const hasWatchouts = a && (a.injection_detected || a.unverified_buyer_claims.length > 0 || a.warnings.length > 0);
+  // Disputes outside the store start with no records: the seller imports them before anything is analysed.
+  const needsRecords = c.canImport && c.records.length === 0;
 
   return (
     <>
@@ -157,7 +161,15 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           </section>
         )}
 
-        {a ? <Verdict a={a} c={c} onRerun={rerun} busy={busy === "analyze"} confirmDiscard={confirmRerun} /> : <div className="card card-body"><div className="skeleton" style={{ height: 100 }} /><p className="small muted">Analyzing this dispute…</p></div>}
+        {(needsRecords || replacing) && (
+          <ImportPanel
+            c={c}
+            runWrite={runWrite}
+            onCancel={replacing ? () => setReplacing(false) : null}
+            onImported={async (warnings) => { setReplacing(false); notify(warnings.length ? `Records saved with ${warnings.length} note${warnings.length === 1 ? "" : "s"}; analysis updated.` : "Records saved and analysed."); await reload(); onChanged(); }}
+          />
+        )}
+        {!needsRecords && (a ? <Verdict a={a} c={c} onRerun={rerun} busy={busy === "analyze"} confirmDiscard={confirmRerun} /> : <div className="card card-body"><div className="skeleton" style={{ height: 100 }} /><p className="small muted">Analyzing this dispute…</p></div>)}
 
         {hasWatchouts && (
           <section className="card card-body section">
@@ -185,7 +197,9 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
             <table className="compare">
               <thead><tr><th>Buyer says</th><th>Your records</th></tr></thead>
               <tbody>
-                {a.contradictions.map((x, i) => <tr key={i}><td>{x.buyer_claim}</td><td>{x.seller_fact}<Cites ids={x.source_ids} onCite={flash} /></td></tr>)}
+                {groupClaims(a.contradictions).map((g) => (
+                  <tr key={g.claim}><td>{g.claim}</td><td>{g.facts.map((f, i) => <div key={i} className="compare-fact">{f.seller_fact}<Cites ids={f.source_ids} onCite={flash} /></div>)}</td></tr>
+                ))}
               </tbody>
             </table>
           </section>
@@ -250,7 +264,7 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           </section>
         )}
 
-        <Records records={c.records} />
+        <Records records={c.records} onReplace={c.canImport && !acted && !replacing ? () => { setReplacing(true); bodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }); } : null} />
 
         <section className="card card-body">
           <details className="disclosure">
@@ -344,11 +358,11 @@ function Done({ c }) {
 
 const IMG = /^\/store\/[\w.-]+\.(png|jpe?g|webp|svg)$/i;
 
-function Records({ records }) {
+function Records({ records, onReplace }) {
   if (!records.length) return null;
   return (
     <section className="section">
-      <h4>Your records <span className="faint">{records.length}</span></h4>
+      <h4>Your records <span className="faint">{records.length}</span>{onReplace && <button className="link-btn small" style={{ marginLeft: "auto" }} onClick={onReplace}>Replace records</button>}</h4>
       <div className="records">
         {records.map((r) => (
           <article key={r.id} className="record" data-record={r.id}>
@@ -378,7 +392,7 @@ function Fields({ data, untrusted }) {
       </dl>
       {photos.length > 0 && (
         <div className="photos">
-          {photos.map((p) => <a key={p} href={p} target="_blank" rel="noreferrer" className="photo-wrap"><Photo src={p} />{untrusted && <span className="photo-tag">Buyer photo</span>}</a>)}
+          {photos.map((p, i) => <a key={p} href={p} target="_blank" rel="noreferrer" className="photo-wrap" aria-label={`Open ${untrusted ? "buyer" : "seller"} photo ${i + 1} in a new tab`}><Photo src={p} />{untrusted && <span className="photo-tag">Buyer photo</span>}</a>)}
         </div>
       )}
     </>
@@ -396,4 +410,16 @@ function fmt(v) {
   if (typeof v === "object") return Object.entries(v).map(([k, y]) => `${k}: ${y}`).join(", ");
   if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
+}
+
+/** One row per distinct buyer claim, even if the model listed it once per contradicting record. */
+function groupClaims(list) {
+  const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const groups = new Map();
+  for (const x of list) {
+    const k = key(x.buyer_claim);
+    if (!groups.has(k)) groups.set(k, { claim: x.buyer_claim, facts: [] });
+    groups.get(k).facts.push(x);
+  }
+  return [...groups.values()];
 }

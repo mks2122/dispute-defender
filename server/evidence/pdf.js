@@ -3,8 +3,13 @@
 
 const PAGE_W = 612, PAGE_H = 792, MARGIN = 56, LEADING = 15, WRAP = 92;
 
-/** PDF string literal escaping; non-Latin-1 characters are replaced so the file stays valid. */
-const esc = (s) => s.replace(/[^\x20-\x7E\xA0-\xFF]/g, "?").replace(/[\\()]/g, (c) => `\\${c}`);
+// Typographic characters the model writes, mapped to their WinAnsiEncoding bytes (written as latin1).
+const WIN_ANSI = { "\u2018": "\x91", "\u2019": "\x92", "\u201C": "\x93", "\u201D": "\x94", "\u2022": "\x95", "\u2013": "\x96", "\u2014": "\x97", "\u2026": "\x85", "\u20AC": "\x80", "\u2122": "\x99", "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2212": "-", "\u00A0": " " };
+/** PDF string literal escaping: typographic characters keep their glyphs, anything else unsupported becomes "?". */
+const esc = (s) => s
+  .replace(/[\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u2026\u20AC\u2122\u2010-\u2012\u2212\u00A0]/g, (c) => WIN_ANSI[c])
+  .replace(/[^\x20-\x7E\x80\x85\x91-\x97\x99\xA0-\xFF]/g, "?")
+  .replace(/[\\()]/g, (c) => `\\${c}`);
 
 function wrap(text, width = WRAP) {
   const out = [];

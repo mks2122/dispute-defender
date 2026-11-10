@@ -6,20 +6,25 @@ import { extractFacts, factIndex, factKnown, splitRecords, normalizeText } from 
 import { MAX_NOTES } from "./schema.js";
 
 const MAX_QUOTE = 300;
-const BUYER_QUOTE = /\bthe buyer (?:alleges|claims|states|says|wrote)\b[^"“]{0,40}["“]([^"”]{0,2000})["”]/gi;
+// "The buyer alleges "A"", including chains: "The buyer alleges "A" and "B"" (every quote in the chain is checked).
+const BUYER_QUOTE = /\bthe buyer (?:alleges|claims|states|says|wrote)\b[^"“]{0,40}((?:["“][^"”]{0,2000}["”](?:\s*(?:,\s*and|,|;|and)\s*(?=["“]))?)+)/gi;
+const QUOTED = /["“]([^"”]{0,2000})["”]/g;
 const squash = (s) => normalizeText(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // Claims that something HAPPENED between buyer and seller. Each needs a seller record that shows it.
 // Negated mentions ("no return was received", "never agreed") deny the event, so they don't count as claims.
 const ASSERTIONS = [
   { re: /\b(agreed|agreement|promised|settled|arranged)\b/i, supported: (s) => /\b(agreed|agreement|promised|settled)\b/i.test(s.sellerMessages), msg: "claims an agreement with the buyer that isn't in your records" },
-  { re: /\b(refunded|reimbursed|compensated|credited|issued (a |the )?refund|refund (was|has been|had been) (issued|sent|processed))\b/i, supported: (s) => /refund_issued|"refunds":\[[^\]]/.test(s.all), msg: "claims a refund or compensation was issued, which isn't in your records" },
+  { re: /\b(refunded|reimbursed|compensated|credited|money back|(sent|gave|given|issued|processed|paid|provided|made|completed)\b[^.;:]{0,30}\b(refund|reimbursement|credit)|(refund|reimbursement)\b[^.;:]{0,20}\b(was|has been|had been|is)\s+(issued|sent|processed|paid|completed))\b/i, supported: (s) => /refund_issued|"refunds":\[[^\]]/.test(s.all), msg: "claims a refund or compensation was issued, which isn't in your records" },
   { re: /\b(returned|sent (it|the item|them) back|received (it|the item|the return) back|return was received)\b/i, supported: (s) => /"returns_received":\[[^\]]/.test(s.all), msg: "claims the item was returned, which isn't in your records" },
   { re: /\b(phoned|called (us|me|our)|on the phone|admitted|admits|confessed|acknowledged)\b/i, supported: (s) => /\b(phone|call|admit|confess|acknowledg)/i.test(s.all), msg: "describes a call or an admission by the buyer that isn't in your records" },
-  { re: /\b(police|fraud(ulent|ster)?|scam(mer)?|criminal|history of (chargebacks|disputes|abuse))\b/i, supported: (s) => /\b(police|fraud|scam|criminal)/i.test(s.all), msg: "accuses the buyer (fraud, police) without anything in your records to back it up" },
+  { re: /\b(police|fraud(ulent|ster)?|scam(mer|ming)?|criminal|thie(f|ves)|theft|stole|liar|lying|abus(e|ive)|serial (disputer|chargeback)|blacklist(ed)?|(history|record|pattern) of (chargebacks|disputes|abuse|fraud))\b/i, supported: (s) => /\b(police|fraud|scam|criminal|theft|abuse)/i.test(s.all), msg: "accuses the buyer (fraud, theft, abuse, police) without anything in your records to back it up" },
+  { re: /\b(cctv|camera|footage|video|witness(es)?|bank (confirmed|verified|said|told|reported)|(card )?issuer (confirmed|verified|said)|carrier (confirmed|verified|said)|confirmed by the (bank|carrier|issuer))\b/i, supported: (s) => /\b(cctv|camera|footage|video|witness|bank|issuer|carrier_confirmation)/i.test(s.all), msg: "cites evidence (camera footage, a bank or carrier confirmation, a witness) that isn't in your records" },
+  { re: /\b(delivered|signed for|received (it|the (item|order|package|parcel|goods)))\b/i, supported: (s) => s.delivered, msg: "says the item was delivered, but your records show no delivery" },
   { re: /\b(never|did not|didn't|has not|hasn't|have not|haven't)\s+(contact(ed)?|message[ds]?|e-?mail(ed)?|reach(ed)? out|complain(ed)?|ask(ed)?|request(ed)?|use[ds]?|raise[ds]?)\b/i, supported: (s) => !s.buyerWrote, msg: "says the buyer never got in touch or never asked, but your records log messages from the buyer", negative: true },
 ];
 const NEGATION = /\b(no|not|never|without|nothing|none|neither|nor)\b|n['’]t\b/i;
+const CONDITIONAL = /\b(if|once|when|after|until|upon|will|would|can|could|should|may|might|happy to|glad to|willing to|offer to)\b/i;
 // A denial can also follow the event word: "the refund agreement is not supported by our records".
 const DENIED_AFTER = /\b(not|no|never|unsupported|unfounded|false|contradicted|nothing)\b|n['’]t\b/i;
 
@@ -35,6 +40,7 @@ function asserts(a, text) {
     if (a.negative) return true;
     const clause = text.slice(Math.max(0, m.index - 40), m.index).split(/[.;!?]\s/).pop();
     if (NEGATION.test(clause)) continue;
+    if (CONDITIONAL.test(text.slice(Math.max(0, m.index - 30), m.index).split(/[.;!?]\s/).pop())) continue;
     const after = text.slice(m.index + m[0].length).split(/[.;!?]\s/)[0].slice(0, 120);
     if (DENIED_AFTER.test(after)) continue;
     const sentence = text.slice(Math.max(0, m.index - 160), m.index).split(/[.;!?]\s/).pop();
@@ -114,17 +120,24 @@ export function guardDraft(notes, { records, sellerContext, buyerTexts = [], cit
   let verified = 0;
 
   // Genuine, short quotes of the buyer may contain the buyer's own claims; anything else stays checkable.
-  const checkable = text.replace(BUYER_QUOTE, (whole, quoted) => {
-    const q = squash(quoted);
-    const genuine = q.length > 0 && quoted.length <= MAX_QUOTE && buyerSquashed.some((b) => b.includes(q));
-    if (!genuine) errors.push(quoted.length > MAX_QUOTE ? "A quote attributed to the buyer is too long; quote only their key words." : "A quote attributed to the buyer doesn't match anything the buyer actually wrote.");
-    return genuine ? "" : whole;
+  const checkable = text.replace(BUYER_QUOTE, (whole, chain) => {
+    let allGenuine = true;
+    for (const [, quoted] of chain.matchAll(QUOTED)) {
+      const q = squash(quoted);
+      const genuine = q.length > 0 && quoted.length <= MAX_QUOTE && buyerSquashed.some((b) => b.includes(q));
+      if (!genuine) {
+        allGenuine = false;
+        errors.push(quoted.length > MAX_QUOTE ? "A quote attributed to the buyer is too long; quote only their key words." : "A quote attributed to the buyer doesn't match anything the buyer actually wrote.");
+      }
+    }
+    return allGenuine ? whole.slice(0, whole.length - chain.length) : whole;
   });
 
   const plain = normalizeText(checkable);
   const facts = extractFacts(checkable);
   errors.push(...eventDateErrors(plain, facts, records), ...signatureErrors(plain, records));
   for (const f of facts) {
+    if (f.kind === "unreadable") { errors.push(`“${f.raw}” can't be checked. Write dates as YYYY-MM-DD and numbers in digits.`); continue; }
     // A record-shaped token is fine if it is a record id, or a value that appears in seller data (e.g. a batch number).
     const known = f.kind === "record" ? recordIds.has(f.value) || seller.text.includes(f.value.toLowerCase()) : factKnown(seller, f);
     if (known) { verified++; continue; }
@@ -133,7 +146,12 @@ export function guardDraft(notes, { records, sellerContext, buyerTexts = [], cit
       ? `“${f.raw}” comes only from the buyer. Quote it as The buyer alleges “…”, or remove it.`
       : `“${f.raw}” doesn't match anything in your records.`);
   }
-  const support = { sellerMessages: JSON.stringify(records.filter((r) => r.data?.from === "seller")), all: JSON.stringify(sellerFacts), buyerWrote: records.some((r) => r.data?.from === "buyer") };
+  const support = {
+    sellerMessages: JSON.stringify(records.filter((r) => r.data?.from === "seller")),
+    all: JSON.stringify(sellerFacts),
+    buyerWrote: records.some((r) => r.data?.from === "buyer"),
+    delivered: records.some((r) => r.type === "shipment" && r.data?.delivered),
+  };
   for (const a of ASSERTIONS) if (asserts(a, plain) && !a.supported(support)) errors.push(`The response ${a.msg}.`);
   for (const id of citedIds) if (!recordIds.has(id)) errors.push(`The analysis cites ${id}, which is not one of your records.`);
 

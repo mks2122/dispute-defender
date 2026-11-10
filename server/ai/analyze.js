@@ -3,11 +3,11 @@
 // problems: if the real model fails, the deterministic mock stands in and the result says so.
 import { config, aiProviderName } from "../config.js";
 import { getDisputeRow, saveAnalysis, latestAnalysis, audit } from "../db.js";
-import { scenarioByKey } from "../store/catalog.js";
+import { recordsFor } from "../records.js";
 import { validateAnalysis } from "./schema.js";
 import { guardDraft, expectedValue, bandFor } from "./guard.js";
 import { checkMandate } from "./mandate.js";
-import { factIndex, unverifiedBuyerClaims, detectInjection, splitRecords } from "./facts.js";
+import { factIndex, unverifiedBuyerClaims, detectInjection, splitRecords, stripInjectionFromQuotes } from "./facts.js";
 import { mockAnalyze } from "./mock.js";
 import { openaiAnalyze } from "./openai.js";
 import { log } from "../log.js";
@@ -16,7 +16,7 @@ import { mapLimit } from "../util.js";
 /** Everything the model and the guard need about one dispute. */
 export function buildInput(row) {
   const dispute = JSON.parse(row.raw);
-  const records = scenarioByKey(row.scenario)?.records ?? [];
+  const { records } = recordsFor(row);
   const { sellerFacts, buyerTexts: loggedBuyerTexts } = splitRecords(records);
   const buyerTexts = [
     ...(dispute.evidences ?? []).filter((e) => e.source === "SUBMITTED_BY_BUYER" && e.notes).map((e) => e.notes),
@@ -91,7 +91,8 @@ async function doAnalyze(disputeId) {
     out = await runProvider("mock", input);
   }
   const latencyMs = Date.now() - started;
-  const a = out.analysis;
+  // A quoted buyer instruction ("IGNORE ALL PRIOR INSTRUCTIONS…") must never be forwarded to PayPal.
+  const a = { ...out.analysis, draft_notes: stripInjectionFromQuotes(out.analysis.draft_notes) };
   const amount = Number(input.dispute.dispute_amount?.value ?? 0);
   const ev = expectedValue(a.win_probability, amount, config.aiTimeCostUsd);
   const guard = guardDraft(a.draft_notes, { records: input.records, sellerContext: sellerContext(input.dispute), buyerTexts: input.buyerTexts, citedIds: citedIds(a) });
@@ -111,7 +112,7 @@ async function doAnalyze(disputeId) {
     ...a,
     confidence_band: bandFor(a.win_probability),
     injection_detected: a.injection_detected || input.injection,
-    unverified_buyer_claims: [...new Set([...input.unverifiedClaims, ...a.unverified_buyer_claims])],
+    unverified_buyer_claims: mergeClaims(input.unverifiedClaims, a.unverified_buyer_claims),
     ev, guard, warnings,
     mandate: input.mandate,
   };
@@ -120,9 +121,30 @@ async function doAnalyze(disputeId) {
   return id;
 }
 
+const claimWords = (s) => new Set(String(s).toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+const STOP = new Set(["buyer", "says", "your", "records", "nothing", "supports", "this", "which", "that", "with", "seller"]);
+/**
+ * Code-detected claims first, then the model's, minus any the code already covers (same tracking number or
+ * record, or mostly the same words), so each claim is listed once.
+ */
+export function mergeClaims(fromCode, fromModel) {
+  const out = [...new Set(fromCode)];
+  const covered = out.map((c) => [...claimWords(c)].filter((w) => !STOP.has(w)));
+  for (const m of fromModel) {
+    const words = [...claimWords(m)].filter((w) => !STOP.has(w));
+    const dup = out.includes(m) || covered.some((c) => {
+      const shared = words.filter((w) => c.includes(w));
+      return shared.some((w) => /\d/.test(w) && w.length >= 6) || (words.length > 0 && shared.length / Math.min(words.length, c.length || 1) >= 0.6);
+    });
+    if (!dup) { out.push(m); covered.push(words); }
+  }
+  return out;
+}
+
 /** Sync hook: analyse disputes that have no analysis yet. Never throws. */
 export async function analyzeMissing(rows) {
-  const todo = rows.filter((r) => !latestAnalysis(r.id));
+  // Nothing to analyse until the dispute has seller records (store orders always do; others after an import).
+  const todo = rows.filter((r) => !latestAnalysis(r.id) && recordsFor(r).records.length > 0);
   if (!todo.length) return 0;
   const results = await mapLimit(todo, 2, (r) => analyzeDispute(r.id));
   for (const f of results.filter((x) => !x.ok)) log.error("ai", `auto-analysis failed for ${f.item.id}`, f.error);

@@ -11,7 +11,7 @@ for (let i = 0; i < 40; i++) {
 }
 if (!data) { console.error("server not reachable"); process.exit(1); }
 console.log(`rows=${data.rows.length} refilling=${data.refilling} syncError=${data.sync.lastError}`);
-for (const r of data.rows) console.log(`  ${r.scenario.padEnd(16)} ${r.reasonLabel.padEnd(17)} $${String(r.atRisk).padEnd(4)} ${r.phaseLabel}`);
+for (const r of data.rows) console.log(`  ${(r.scenario ?? `(${r.recordsSource})`).padEnd(16)} ${r.reasonLabel.padEnd(17)} $${String(r.atRisk).padEnd(4)} ${r.phaseLabel}`);
 
 const checks = [
   ["bad percent-escape id → 404", `${base}/api/disputes/${"%E0%A4%A"}`, 404],

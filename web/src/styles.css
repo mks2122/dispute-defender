@@ -244,6 +244,10 @@ a { color: inherit; }
 .sheet-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
 /* Sections never shrink: overflow:hidden children would otherwise collapse inside a fixed-height scroller. */
 .sheet-body > * { flex-shrink: 0; }
+/* Long tokens (tracking numbers, record ids) wrap instead of pushing the sheet sideways. */
+.sheet-body { overflow-x: hidden; }
+.sheet-body > * { min-width: 0; max-width: 100%; }
+.compare-fact + .compare-fact { margin-top: 8px; }
 .sheet-foot { padding: 12px 20px; background: var(--panel); border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sheet-foot .grow { flex: 1; min-width: 160px; font-size: 13px; color: var(--text-2); }
 
@@ -286,6 +290,8 @@ a { color: inherit; }
 .editor:focus { outline: none; border-color: var(--text-3); box-shadow: 0 0 0 3px var(--accent-soft); }
 .editor-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-3); gap: 12px; flex-wrap: wrap; }
 .editor-actions { display: inline-flex; align-items: center; gap: 12px; }
+.row-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.editor.mono { font-size: 12px; min-height: 180px; }
 .editor-actions .link-btn { font-size: 12px; color: var(--text-2); }
 .guard-ok { color: var(--text-2); display: inline-flex; gap: 6px; align-items: center; }
 .guard-errors { margin: 10px 0 0; padding: 10px 12px; list-style: none; border-radius: var(--r-sm); background: var(--error-bg); color: var(--error); font-size: 13px; display: grid; gap: 4px; }

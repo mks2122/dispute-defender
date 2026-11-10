@@ -10,10 +10,11 @@ Built for the PayPal AI Hackathon (Devpost), November 2026.
 | | |
 |---|---|
 | **Live PayPal dashboard** | Real sandbox disputes from the Disputes API, ranked by the expected value of responding. Overview KPIs, a priority queue, money at risk by reason, and an activity feed. Works on desktop, tablet and phone. |
-| **AI verdict** | Fight or refund, a win chance shown as a band, the expected value of fighting, and a partial-refund suggestion when the seller is partly at fault. |
+| **AI verdict** | Fight or refund, a win chance shown as a band, and the expected value of fighting. When the seller is partly at fault the AI may suggest a goodwill partial refund; PayPal chargebacks themselves only accept a full refund. |
 | **Cited reasoning** | Every point links to the seller record it came from (shipment, listing, supplier certificate, message log…). Buyer claims are compared side by side with the records. |
 | **Fact-checking guard** | Every tracking number, amount, date, signature and record id in a draft must match a record the seller owns, and a date must belong to the right event ("delivered on" must be the delivery date). Claims that something happened (an agreement, a refund, a return, a phone call, an admission, fraud) need a record that shows it. Text the buyer wrote never counts as evidence. The guard re-runs live as the seller edits. |
 | **Prompt-injection defence** | Buyer text and buyer photos are treated as claims, never instructions. The demo includes a buyer note and a buyer photo that both try to make the AI refund; the model reads the photo, reports the hidden instruction and ignores it. If an injection ever does push the verdict to refund, code flags it for a second look. |
+| **Import your own records** | Disputes that don't come from the connected store still show up in the inbox. The seller pastes or uploads the order, shipment, listing and messages as JSON or CSV; they're validated, saved, and the dispute is analysed and fact-checked against them like any other. |
 | **AI-agent purchase disputes** | When a buyer says "my AI agent bought this", the order is checked against the purchase mandate the buyer signed: agent, category, spending cap, validity dates, consent time. |
 | **Approve → PayPal** | Submit evidence (`provide-evidence`, with a generated PDF evidence packet) or refund (`accept-claim`). Nothing is sent without a click and a confirmation. A dispute can never be acted on twice. |
 
@@ -50,6 +51,20 @@ For development, run `npm run dev` (API) and `npm run dev:web` (Vite on :5173) t
 
 **Quality gate:** `npm run check` runs lint (with architecture rules), the build, and the unit tests (including contract tests against a fake PayPal and a fake OpenAI, plus a secret scan). With the app running, `npm run smoke` checks the live server.
 
+## Importing records
+For a dispute that isn't a store order, open it and use **Add your records** (or **Replace records** later). Paste or upload:
+- **JSON:** a list of records, or `{ "records": [...] }`. Each record has an `id` like `ORD-1001`, a `type`, an optional `title` and a `data` object.
+- **CSV:** the columns `id,type,title,field,value`, one row per field; rows with the same id become one record. Long numbers (tracking, zip codes) stay text.
+
+Types: `order`, `shipment`, `listing`, `message` (with `from`: `buyer` or `seller`), `message_log`, `policy`, `supplier_cert`, `prior_order`, `agent_mandate`, `note`. Limits: 40 records, 64 KB, 30 fields per record, nesting depth 3. Photos can't be uploaded; only images already in `web/public/store/` are kept. Saving needs the passcode and runs one analysis.
+
+```json
+[
+  { "id": "ORD-3101", "type": "order", "data": { "placed": "2026-10-12", "items": [{ "name": "Enamel pin set", "qty": 1, "price": 13 }] } },
+  { "id": "SHP-3101", "type": "shipment", "data": { "carrier": "USPS", "tracking": "9400111899223857311234", "delivered": "2026-10-17" } }
+]
+```
+
 ## Deploy (Render)
 `render.yaml` describes a single web service:
 - **Build:** `npm ci && npm run build`. **Start:** `npm start`. **Health check:** `/api/health`.
@@ -64,7 +79,7 @@ For development, run `npm run dev` (API) and `npm run dev:web` (Vite on :5173) t
 |---|---|
 | Leather wallet, $110, "not as described" | The hero case: delivery is signed for, the buyer praised it on arrival, a supplier certificate confirms the material. **Fight.** |
 | Phone case, $18, "not received" | No tracking, and fighting costs more than it recovers. **Refund.** |
-| Waxed jacket, $240, "torn seam" | The buyer reported the defect with a photo and never got a reply. **Refund**, with a partial-refund suggestion. |
+| Waxed jacket, $240, "torn seam" | The buyer reported the defect with a photo and never got a reply. **Refund.** |
 | Mug set, $65, "unauthorized" | Same device and address as 3 earlier undisputed orders. **Fight.** |
 | Rain cover, $89, "my AI agent bought this" | The purchase is within the signed mandate. **Fight.** |
 | Trekking bundle, $310, AI agent | $310 is over the mandate's $150 cap. **Refund.** |

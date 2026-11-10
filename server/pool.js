@@ -2,7 +2,7 @@
 // Fresh, actionable disputes wait in the pool; Reset swaps them in, and sync tops up any scenario
 // missing from the batch. A batch never shrinks: if a scenario has no fresh pool dispute, the current
 // untouched one is carried over instead of being retired.
-import { getMeta, setMeta, disputesInBatch, setBatch, getSubmission, audit, poolRows } from "./db.js";
+import { getMeta, setMeta, disputesInBatch, setBatch, getSubmission, audit, poolRows, retiredUnknownRows } from "./db.js";
 import { SCENARIOS } from "./store/catalog.js";
 import { config } from "./config.js";
 import { isActionable, isProcessing, isResolved, isDeadInPool } from "./disputes.js";
@@ -34,6 +34,19 @@ export function retireDeadPoolRows() {
   if (dead.length) audit(null, "pool_retired", { ids: dead.map((r) => r.id) });
   return dead.length;
 }
+
+/**
+ * Disputes from outside the store that still need a response join the inbox as "external", so the seller can
+ * import their records. (Older caches retired them; this brings them back without a DB wipe.)
+ */
+export function adoptExternalRows() {
+  const adopted = retiredUnknownRows().filter((r) => isActionable(parse(r)) && !getSubmission(r.id));
+  for (const r of adopted) setBatch(r.id, "external");
+  return adopted.length;
+}
+
+/** Disputes from outside the store, newest first. */
+export const externalRows = () => disputesInBatch("external");
 
 /**
  * New batch = a fresh pool dispute per scenario, or the previous batch's untouched dispute for that
