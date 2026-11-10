@@ -82,7 +82,7 @@ export default function App() {
       const r = await runWrite(api.reset);
       if (!r) return;
       setSelected(null);
-      setToast(r.changed ? `Loaded ${r.picked.length} fresh dispute${r.picked.length === 1 ? "" : "s"} from the PayPal sandbox.` : r.refilling ? "New disputes are being created in PayPal (about 5 minutes)." : "No fresh disputes in reserve right now.");
+      setToast(r.changed ? `Loaded ${r.picked.length} new dispute${r.picked.length === 1 ? "" : "s"} from PayPal.` : r.refilling ? "New disputes are on their way from PayPal (about 5 minutes)." : "No new disputes are ready yet.");
       load();
     } catch (e) { setToast(e.message); }
   }, [runWrite, load]);
@@ -91,7 +91,6 @@ export default function App() {
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const counts = useMemo(() => ({ disputes: rows.length, needs: rows.filter(NEEDS).length, responded: rows.filter(RESPONDED).length }), [rows]);
   const current = PAGES[page];
-  const syncOk = !data?.sync?.lastError;
 
   return (
     <div className="shell">
@@ -106,10 +105,6 @@ export default function App() {
         <div className="nav-group">Workspace</div>
         <NavLink id="activity" page={page} />
         <NavLink id="settings" page={page} />
-        <div className="sidebar-foot">
-          <div className="env-row" title={syncOk ? "Synced with PayPal" : data?.sync?.lastError}><span className={`dot ${syncOk ? "dot-live" : "dot-off"}`} /><span className="env-text">PayPal Sandbox</span></div>
-          <div className="env-row"><Icon name="bot" size={14} /><span className="env-text">{data?.ai?.provider === "openai" ? data.ai.model : "Demo AI model"}</span></div>
-        </div>
       </aside>
 
       <div className="main">
@@ -120,7 +115,6 @@ export default function App() {
           <button className="icon-btn" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </button>
-          <button className="btn" onClick={reset} title="Swap in a fresh set of sandbox disputes"><Icon name="refresh" size={14} /><span className="hide-sm">Reset demo</span></button>
         </header>
 
         <main className="content">

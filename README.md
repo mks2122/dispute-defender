@@ -73,7 +73,7 @@ For development, run `npm run dev` (API) and `npm run dev:web` (Vite on :5173) t
 
 ## Sandbox notes (learned the hard way)
 - Sandbox accounts must be **US**. India-based sandbox accounts fail card payments, checkout and Send Money.
-- A new chargeback goes OPEN → UNDER_REVIEW (about 1 min) → WAITING_FOR_SELLER_RESPONSE (about 4–5 min), so the app keeps a pre-warmed reserve of disputes for "Reset demo".
+- A new chargeback goes OPEN → UNDER_REVIEW (about 1 min) → WAITING_FOR_SELLER_RESPONSE (about 4–5 min), so the app keeps a pre-warmed reserve of disputes for Settings → Load new disputes.
 - The chargeback reason depends on the reason code **and the card brand**:
 
   | Code | Card brand | Reason |

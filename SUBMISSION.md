@@ -64,7 +64,7 @@ paypal-disputes-api, paypal-orders-api, openai, gpt-5.6-luna, node.js, express, 
 3. Read the verdict, click a citation chip (for example `SHP-1001`) to jump to the record, then try typing a fake tracking number into the response. The guard blocks it.
 4. Click **Submit evidence → Confirm and send**. The passcode is in the submission notes. The dispute's PayPal status changes.
 5. Try **Linen throw** and **Ceramic vase**, the injection attacks, and **Trekking poles** (AI agent over its mandate).
-6. **Reset demo** (top right) swaps in fresh disputes from the reserve.
+6. **Settings → Load new disputes** swaps in fresh disputes that PayPal has ready.
 
 ---
 
@@ -83,6 +83,6 @@ paypal-disputes-api, paypal-orders-api, openai, gpt-5.6-luna, node.js, express, 
 | 2:40 | Overview | "Dispute Defender: fight the chargebacks worth fighting, refund the rest, and never send a fact you can't prove." |
 
 **Recording tips:**
-- Use a 1440×900 window in light mode, and run Reset demo about 10 minutes before recording.
+- Use a 1440×900 window in light mode, and run Settings → Load new disputes about 10 minutes before recording.
 - Keep the hero wallet dispute untouched until the submit beat.
 - If `OPENAI_API_KEY` is set, show the "GPT-5.6 Luna" label in the sidebar.

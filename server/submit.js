@@ -48,7 +48,7 @@ export function buildPacket(dispute, records, notes, analysis) {
  */
 export async function submitDecision(disputeId, { decision, notes, analysisId }) {
   const row = getDisputeRow(disputeId);
-  if (!row || row.batch === "retired") throw new SubmitError(404, "Dispute not found in this demo.");
+  if (!row || row.batch === "retired") throw new SubmitError(404, "Dispute not found.");
   if (typeof decision !== "string" || !Object.hasOwn(ACTION, decision)) throw new SubmitError(400, "Choose FIGHT or REFUND.");
   const text = typeof notes === "string" ? notes.trim() : "";
   if (!text) throw new SubmitError(400, "Add a response before submitting.");
