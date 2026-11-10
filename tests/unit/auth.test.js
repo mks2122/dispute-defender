@@ -24,7 +24,7 @@ test("tampered, expired, malformed or extra-segment cookies are rejected", () =>
   const past = String(Date.now() - 1);
   const good = sign(exp);
   for (const c of [
-    `dd_session=${exp}.${good.slice(0, -1)}0`, // flipped signature
+    `dd_session=${exp}.${good.slice(0, -1)}${good.endsWith("0") ? "1" : "0"}`, // flipped signature (always a different last character)
     `dd_session=${Number(exp) + 1}.${good}`, // bumped expiry
     `dd_session=${past}.${sign(past)}`, // expired but validly signed
     `dd_session=${exp}.${good}.extra`, // extra segment

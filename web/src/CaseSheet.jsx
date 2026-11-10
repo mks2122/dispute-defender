@@ -163,8 +163,8 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
           <section className="card card-body section">
             <h4>Watch-outs</h4>
             <ul className="notes">
-              {a.injection_detected && <li><span className="warn-text"><Icon name="alert" size={14} /></span><span>The buyer's text tried to give the AI instructions. They were ignored.</span></li>}
-              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="warn-text"><Icon name="alert" size={14} /></span><span>{u}.</span></li>)}
+              {a.injection_detected && <li><span className="warn-text"><Icon name="alert" size={14} /></span><span>The buyer's message or photo tried to give the AI instructions. They were ignored.</span></li>}
+              {a.unverified_buyer_claims.map((u) => <li key={u}><span className="warn-text"><Icon name="alert" size={14} /></span><span>{/[.!?]["”]?$/.test(u) ? u : `${u}.`}</span></li>)}
               {a.warnings.map((w) => <li key={w}><span className="faint"><Icon name="alert" size={14} /></span><span className="muted">{w}</span></li>)}
             </ul>
           </section>
@@ -237,7 +237,12 @@ function CaseBody({ c, reload, runWrite, onChanged, notify }) {
                   {guardErrors ? <span className="error-text">Fix the issues below before sending</span>
                     : check?.ok ? <span className="guard-ok"><Icon name="check" size={13} /> {check.verified ? `${check.verified} fact${check.verified === 1 ? "" : "s"} verified against your records` : "No unverifiable facts"}</span>
                       : <span>Checking facts…</span>}
-                  <span className={`num ${overLimit ? "error-text" : ""}`}>{notes.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}</span>
+                  <span className="editor-actions">
+                    {original[decision] && notes !== original[decision] && (
+                      <button className="link-btn" onClick={() => { setNotes(original[decision]); setConfirming(false); setServerErrors(null); }}>{decision === "REFUND" && a?.recommendation !== "REFUND" ? "Restore default note" : "Restore AI draft"}</button>
+                    )}
+                    <span className={`num ${overLimit ? "error-text" : ""}`}>{notes.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}</span>
+                  </span>
                 </div>
                 {guardErrors && <ul className="guard-errors" role="alert">{guardErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
               </>
@@ -362,7 +367,7 @@ function Records({ records }) {
 
 function Fields({ data, untrusted }) {
   const isImg = (v) => typeof v === "string" && IMG.test(v);
-  const entries = Object.entries(data).filter(([k, v]) => v !== null && v !== undefined && !(Array.isArray(v) && !v.length) && !["from", "untrusted_attachment", "seller_replied"].includes(k));
+  const entries = Object.entries(data).filter(([k, v]) => v !== null && v !== undefined && !(Array.isArray(v) && !v.length) && !["from", "seller_replied"].includes(k));
   const photos = entries.flatMap(([, v]) => [].concat(v)).filter(isImg);
   return (
     <>

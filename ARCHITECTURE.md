@@ -225,13 +225,18 @@ seed ─▶ pool ──(WAITING, no submission)──▶ <active batch> ──(n
 - Text is NFKC-normalised, and Arabic-Indic digits are mapped to ASCII.
 - Facts extracted:
   - tracking numbers: contiguous, grouped (each group must contain a digit), or anything introduced by the word "tracking";
-  - money: `$`, `€`, `£`, `USD`, `dollars`;
+  - money: `$`, `€`, `£`, `USD`, `dollars`, bare amounts with cents (`110.00`), and numbers after a money word (`total was 110`);
   - dates: ISO, `/`-separated, `Mon D, YYYY`, `D Mon YYYY`, and year-less `Mon D` and `M/D`;
   - record ids: known prefixes in any case, or `ABC-1234`.
 - Each fact must match **seller-asserted** data. Buyer message text never verifies a fact.
 - A buyer quote (`The buyer alleges "…"`) is exempt only if it is a genuine substring of the buyer's own words and at most 300 characters.
-- Claims that an agreement, refund, compensation or return happened need a supporting seller record.
-- **Known limit:** names, quantities, times and relative durations are not machine-checked. The seller reviews every draft before sending.
+- **Dates belong to events.** A date after "delivered", "shipped" or "placed/ordered" (same sentence, within 60 characters) must equal that event's date in the records.
+- **Signatures.** "signed for by NAME" must match a shipment's `signed_by`.
+- **Events need a record.** Claims that an agreement, refund, compensation, return, phone call or admission happened, or accusations of fraud or police involvement, need a supporting seller record. "The buyer never contacted us / never asked" is blocked whenever a buyer message is logged.
+- **Denials and reported speech are not claims.** "No return was received", "the refund agreement is not supported by our records" and "The buyer alleges that a refund was agreed" pass; a sentence that turns ("…, but we refunded them") does not.
+- **Known limit:** names other than signatures, addresses, quantities, times and relative durations are not machine-checked. The seller reviews every draft before sending.
+
+**Injection backstop.** Injection detection is a phrase heuristic used for the UI flag; the defence is structural (UNTRUSTED fencing plus the guard). If injection is detected and the verdict is REFUND, `analyze.js` always adds a warning asking the seller to confirm the reasoning stands on their records alone.
 
 **Timeouts.** OpenAI calls time out after 30 s, with one retry on timeout, 429 or 5xx. The analysis is read-only, so the retry is safe.
 
@@ -254,6 +259,7 @@ Render web service (`render.yaml`): `npm ci && npm run build`, then `npm start`,
 
 ## 11. Known limits and tech debt
 - Product images are illustrations rendered from `scripts/store-images/svgs.mjs` (no real photography). To regenerate them: run the script, build, render each SVG at 800×800 in a browser, and save it as PNG in `web/public/store/`.
-- The guard does not machine-check names, quantities, times or relative durations (§8). The seller reviews every draft.
+- The guard does not machine-check names other than signatures, addresses, quantities, times or relative durations (§8). The seller reviews every draft.
+- Real-model verdicts vary a little between runs (one of several runs on the injection case leaned to refund before the prompt fix). The backstop warning covers the dangerous direction; re-run is one click.
 - The AG Grid chunk is about 950 KB minified (265 KB gzip). It is lazy-loaded, but Vite still warns about its size.
 - Single-seller demo: no PayPal OAuth onboarding, and no real carrier tracking API.

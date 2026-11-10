@@ -49,9 +49,10 @@ const VerdictCell = ({ data }) => (
     {data.ai?.injection && <span className="warn-text" title="The buyer's text tried to instruct the AI; ignored"><Icon name="alert" size={14} /></span>}
   </div>
 );
-const EvCell = ({ data }) => (data.ai && data.phase !== "RESOLVED"
-  ? <div className="cell-center"><span className={data.ai.recommendation === "FIGHT" && data.ai.ev > 0 ? "ev-pos" : "ev-neg"}>{signedMoney(data.ai.ev)}</span></div>
-  : <div className="cell-center faint">—</div>);
+// A refund recommendation shows no "value of fighting": a positive number next to "Refund" reads as a contradiction.
+const EvCell = ({ data }) => (data.ai && data.phase !== "RESOLVED" && data.ai.recommendation === "FIGHT"
+  ? <div className="cell-center"><span className={data.ai.ev > 0 ? "ev-pos" : "ev-neg"}>{signedMoney(data.ai.ev)}</span></div>
+  : <div className="cell-center faint" title={data.ai?.recommendation === "REFUND" ? "Refund recommended" : undefined}>—</div>);
 const StatusCell = ({ data }) => <div className="cell-center"><Status phase={data.phase} label={data.phaseLabel} /></div>;
 const DueCell = ({ value }) => {
   const d = dueLabel(value);

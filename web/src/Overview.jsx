@@ -41,7 +41,7 @@ export default function Overview({ rows, loading, onOpen }) {
         <Kpi label="At risk" value={money(m.atRisk)} sub={`${m.open} open dispute${m.open === 1 ? "" : "s"}`} />
         <Kpi label="Expected recovery" value={money(Math.round(m.recover * 100) / 100)} sub="if you fight the recommended ones" />
         <Kpi label="Needs response" value={m.needs.length} sub="before PayPal's deadline" />
-        <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="every fact traced to a record" />
+        <Kpi label="Drafts fact-checked" value={`${m.verified}/${m.analysed}`} sub="checked against your records" />
       </section>
 
       <div className="grid-2">
@@ -59,7 +59,7 @@ export default function Overview({ rows, loading, onOpen }) {
                     </span>
                     <span className="row-right">
                       <div className="verdict-text">{r.ai ? verdictWord(r.ai.recommendation) : "Analyzing…"}</div>
-                      <div className="small faint">{r.ai ? `${signedMoney(r.ai.ev)} EV` : ""}</div>
+                      <div className="small faint">{!r.ai ? "" : r.ai.recommendation === "REFUND" ? `Refund ${money(r.amount, r.currency)}` : `${signedMoney(r.ai.ev)} expected`}</div>
                     </span>
                   </button>
                 </li>
