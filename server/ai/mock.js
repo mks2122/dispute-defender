@@ -6,6 +6,8 @@ import { bandFor } from "./guard.js";
 const usd = (n) => `$${Number(n).toFixed(2).replace(/\.00$/, "")}`;
 const DEFECT = /\b(torn|tear|broken|crack(ed)?|defect(ive)?|damaged?|stain(ed)?|ripped|seam)\b/i;
 const PRAISE = /\b(lovely|love it|great|perfect|thanks|thank you|happy|beautiful)\b/i;
+const RETURN_REQUEST = /\b(return|send (it|this) back|exchange)\b/i;
+const COLOR_CLAIM = /\b(colou?r|shade|tone)\b/i;
 const COLORS = ["black", "brown", "cognac", "white", "red", "blue", "green", "celadon", "grey", "gray", "oatmeal", "tan", "pink", "yellow"];
 const daysBetween = (a, b) => (new Date(b) - new Date(a)) / 864e5;
 
@@ -28,7 +30,9 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
   const unanswered = buyerMsgs.find((m) => m.data.seller_replied === false && DEFECT.test(m.data.text));
   const praise = buyerMsgs.find((m) => PRAISE.test(m.data.text) && delivered && daysBetween(delivered, m.data.date) <= 2);
   const priors = of("prior_order").filter((h) => !h.data.disputed && order?.data.device_id && h.data.device_id === order.data.device_id);
-  const untrustedPhoto = of("message").find((m) => m.data.untrusted_attachment);
+  // Every photo the buyer sends is an unverified claim (the rules engine can't read images at all).
+  const buyerPhoto = buyerMsgs.find((m) => m.data.attachment);
+  const returnRequest = buyerMsgs.find((m) => RETURN_REQUEST.test(m.data.text) && !DEFECT.test(m.data.text));
 
   if (shipment) evidence.push({ requirement: "Proof of delivery", status: delivered && tracking ? "have" : delivered ? "weak" : "missing", source_ids: [shipment.id] });
 
@@ -63,6 +67,11 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
       recommendation = "FIGHT";
       p = 0.55 + (praise ? 0.15 : 0) + (cert ? 0.1 : 0) + (listing ? 0.05 : 0);
       reasoning.push({ point: `Delivered on ${delivered}${shipment.data.signed_by ? " and signed for" : ""}.`, source_ids: [shipment.id] });
+      if (returnRequest) {
+        p -= 0.1;
+        const inWindow = policy && daysBetween(delivered, returnRequest.data.date) <= 30;
+        reasoning.push({ point: `On ${returnRequest.data.date} the buyer asked to return it${inWindow ? ", which is within your 30-day return window" : ""}. Offer that return in your response; ignoring it would weaken your case.`, source_ids: [returnRequest.id, ...(policy ? [policy.id] : [])] });
+      }
       if (praise) {
         reasoning.push({ point: `On ${praise.data.date} the buyer wrote "${praise.data.text}" before later disputing.`, source_ids: [praise.id] });
         contradictions.push({ buyer_claim: "The item is not as described.", seller_fact: `The buyer praised the item on ${praise.data.date}.`, source_ids: [praise.id] });
@@ -70,14 +79,22 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
       if (cert) reasoning.push({ point: `A supplier certificate confirms the material: ${cert.data.material}.`, source_ids: [cert.id] });
       const claimed = COLORS.filter((c) => new RegExp(`\\b${c}\\b`, "i").test(buyerText));
       const listed = String(listing?.data.color ?? listing?.data.description ?? "").toLowerCase();
-      for (const c of claimed) if (listed && !listed.includes(c) && /\bnot\b|\bdifferent\b/i.test(buyerText)) {
-        contradictions.push({ buyer_claim: `The buyer alleges the item is ${c}.`, seller_fact: `The listing shows ${listing.data.color ?? "a different colour"}.`, source_ids: [listing.id] });
-        break;
+      const listedColour = listing?.data.color ?? COLORS.filter((c) => listed.includes(c)).join(" ");
+      const named = claimed.find((c) => listed && !listed.includes(c) && /\bnot\b|\bdifferent\b/i.test(buyerText));
+      if (named || (listedColour && COLOR_CLAIM.test(buyerText) && /\bdifferent\b|\bnot\b|\bwrong\b/i.test(buyerText))) {
+        contradictions.push({
+          buyer_claim: named ? `The buyer alleges the item is ${named}.` : "The buyer alleges the colour differs from the listing.",
+          seller_fact: `The listing describes it as ${listedColour}${shipment.data.packing_photo ? ", and the packing photo records what was shipped" : ""}.`,
+          source_ids: [listing.id, ...(shipment.data.packing_photo ? [shipment.id] : [])],
+        });
       }
       if (/\b(plastic|fake|not real|not genuine)\b/i.test(buyerText) && cert) {
         contradictions.push({ buyer_claim: "The buyer alleges the material is fake.", seller_fact: `Supplier certificate: ${cert.data.material}.`, source_ids: [cert.id] });
       }
-      if (untrustedPhoto) reasoning.push({ point: "The buyer's photo is treated as an unverified claim. Any text inside it is ignored.", source_ids: [untrustedPhoto.id] });
+      if (buyerPhoto) {
+        p -= 0.1;
+        reasoning.push({ point: "The buyer sent a photo. The built-in rules engine can't read images, so compare it with your listing and packing photos before you send. Any text written inside it is never treated as an instruction.", source_ids: [buyerPhoto.id] });
+      }
     } else {
       reasoning.push({ point: "There is no proof of delivery to support a defence.", source_ids: shipment ? [shipment.id] : [] });
     }
@@ -85,7 +102,7 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
   if (unverifiedClaims.length) reasoning.push({ point: `${unverifiedClaims.length} statement(s) in the buyer's claim aren't supported by your records.`, source_ids: records.filter((r) => r.type === "message_log" || r.type === "shipment").map((r) => r.id) });
 
   p = Math.min(0.85, Math.round(p * 100) / 100);
-  const draft = recommendation === "FIGHT" ? fightDraft({ order, shipment, listing, cert, praise, priors, mandate, policy, dispute }) : refundDraft(reasoning[0]?.point);
+  const draft = recommendation === "FIGHT" ? fightDraft({ order, shipment, listing, cert, praise, priors, mandate, policy, dispute, returnRequest }) : refundDraft(reasoning[0]?.point);
   return {
     summary: recommendation === "FIGHT" ? `Your records support fighting this ${usd(amount)} dispute.` : `Refunding is the better choice for this ${usd(amount)} dispute.`,
     recommendation,
@@ -101,7 +118,7 @@ export function mockAnalyze({ dispute, records, buyerTexts, mandate, unverifiedC
   };
 }
 
-function fightDraft({ order, shipment, listing, cert, praise, priors, mandate, policy, dispute }) {
+function fightDraft({ order, shipment, listing, cert, praise, priors, mandate, policy, dispute, returnRequest }) {
   const out = [];
   if (order) {
     const total = order.data.items.reduce((s, i) => s + i.price * i.qty, 0);
@@ -118,7 +135,8 @@ function fightDraft({ order, shipment, listing, cert, praise, priors, mandate, p
   if (listing && dispute.reason === "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED") out.push(`The listing (${listing.id}) describes the item as: ${listing.data.description}`);
   if (cert) out.push(`The supplier certificate (${cert.id}) confirms ${cert.data.material}, batch ${cert.data.batch}.`);
   if (praise) out.push(`On ${praise.data.date}, after delivery, the buyer wrote: "${praise.data.text}" (${praise.id}).`);
-  if (policy) out.push(`Our return policy (${policy.id}) offers returns within 30 days of delivery. The buyer did not use it.`);
+  if (returnRequest && policy) out.push(`On ${returnRequest.data.date} the buyer asked to return the item (${returnRequest.id}). We are glad to accept that return under our return policy (${policy.id}) and refund in full once it arrives, so a chargeback is not needed.`);
+  else if (policy) out.push(`Our return policy (${policy.id}) offers returns within 30 days of delivery, and that route remains open to the buyer.`);
   out.push("Based on this evidence we ask PayPal to decide this dispute in our favour.");
   return out.join(" ");
 }

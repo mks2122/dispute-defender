@@ -51,6 +51,9 @@ export function extractFacts(text) {
   for (const m of t.matchAll(/[$€£]\s?(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?/g)) push("money", num(m[1] + (m[2] ?? "")), m[0]);
   for (const m of t.matchAll(/\b(?:USD|EUR|GBP)\s?(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?\b/gi)) push("money", num(m[1] + (m[2] ?? "")), m[0]);
   for (const m of t.matchAll(/\b(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?\s?(?:USD|EUR|GBP|dollars?|bucks)\b/gi)) push("money", num(m[1] + (m[2] ?? "")), m[0]);
+  // Bare amounts: anything with cents ("110.00", "9.99"), or a number after a money word ("total was 110", "fee of 15").
+  for (const m of t.matchAll(/(?<![\d$€£.,/-])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?![\d.])/g)) push("money", num(`${m[1]}.${m[2]}`), m[0]);
+  for (const m of t.matchAll(/\b(?:total|fee|fees|cost|price|paid|charged|amount|refund)(?:\s+(?:was|is|were|of|came to|totall?ed))?\s*:?\s+(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?\b(?![%/-]|\s?(?:days?|weeks?|months?|years?|items?|cm|mm|kg|g)\b)/gi)) push("money", num(m[1] + (m[2] ?? "")), m[0]);
 
   // Dates: ISO, 2026/10/25, 10/25/2026 (or 25/10/2026: either reading may match), "Oct 25, 2026", "25 Oct 2026", "Oct. 25th" (no year).
   for (const m of t.matchAll(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/g)) push("date", iso(m[1], +m[2], +m[3]), m[0]);
@@ -106,12 +109,18 @@ export function splitRecords(records) {
   return { sellerFacts, buyerTexts };
 }
 
+// Phrasings that address the AI instead of the seller. A heuristic flag for the UI and the audit log only:
+// the real defence is structural (buyer text is fenced as UNTRUSTED data in the prompt, and the guard
+// rejects any fact that only the buyer asserts), so a missed phrasing can't change what gets sent.
 const INJECTION = [
-  /ignore (all |any )?(prior|previous|above|earlier) (instructions|messages|rules)/i,
+  /\b(ignore|disregard|forget|override)\b.{0,30}\b(instructions?|prompts?|rules|guidelines|messages?|everything|what you (were|have been) told|told (you )?before)\b/i,
+  /\b(ignore|disregard)\s+(all|any|the|everything)?\s*(above|previous|prior|earlier)\b/i,
   /\b(system|assistant|developer)\s*:/i,
   /\byou are (now )?(an?|the) /i,
-  /\b(recommend|output|respond with|choose)\s+(refund|accept|fight)\b/i,
-  /\bdisregard\b.*\b(instructions|rules|policy)\b/i,
+  /\b(recommend|output|respond with|choose|select|return)\s+(a\s+)?(refund|accept|fight)\b/i,
+  /\bnew (task|instructions?|role|objective)\b/i,
+  /\b(ai|bot|model|assistant|reviewer|grader|llm)\b.{0,40}\b(verdict|recommendation|decision|answer)\b/i,
+  /\b(correct|right|required|final) (verdict|answer|decision|recommendation) is\b/i,
 ];
 export const detectInjection = (texts) => texts.some((t) => INJECTION.some((re) => re.test(normalizeText(t))));
 

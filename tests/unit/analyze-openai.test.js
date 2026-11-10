@@ -77,5 +77,7 @@ test("a fabricated fact from the model is caught by the guard (never trusted bli
   await analyzeDispute(row.id);
   const p = JSON.parse(latestAnalysis(row.id).payload);
   assert.equal(p.guard.ok, false);
-  assert.equal(p.guard.errors.length, 2);
+  // Unknown tracking number, unknown date, and that date given as the delivery date.
+  assert.equal(p.guard.errors.length, 3);
+  assert.ok(p.guard.errors.some((e) => /not the delivery date/.test(e)));
 });

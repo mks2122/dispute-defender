@@ -362,7 +362,7 @@ function Records({ records }) {
 
 function Fields({ data, untrusted }) {
   const isImg = (v) => typeof v === "string" && IMG.test(v);
-  const entries = Object.entries(data).filter(([k, v]) => v !== null && v !== undefined && !(Array.isArray(v) && !v.length) && !["from", "untrusted_attachment", "seller_replied"].includes(k));
+  const entries = Object.entries(data).filter(([k, v]) => v !== null && v !== undefined && !(Array.isArray(v) && !v.length) && !["from", "seller_replied"].includes(k));
   const photos = entries.flatMap(([, v]) => [].concat(v)).filter(isImg);
   return (
     <>
