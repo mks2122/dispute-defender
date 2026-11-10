@@ -33,6 +33,7 @@ A seller-side agent for PayPal disputes. It does five things:
 | Which disputes the inbox shows (batch / pool / retired) | Local `disputes.batch` | Can be rebuilt from PayPal (§6) |
 | What the seller approved and submitted | Local `submissions` (UNIQUE per dispute) plus PayPal `evidences[]` | — |
 | AI analyses and drafts | Local `analyses` | Can be regenerated |
+| Seller records for non-store disputes | Local `imported_records` (seller import, validated by `store/import.js`) | Mirrored to Turso; lost only if both copies go |
 
 **Invariant:** losing the SQLite file loses nothing that matters. On a fresh boot, sync rebuilds the pool and the inbox from PayPal plus the catalog. Render keeps the DB in `/tmp` on purpose.
 
@@ -234,7 +235,11 @@ seed ─▶ pool ──(WAITING, no submission)──▶ <active batch> ──(n
 - **Signatures.** "signed for by NAME" must match a shipment's `signed_by`.
 - **Events need a record.** Claims that an agreement, refund, compensation, return, phone call or admission happened, or accusations of fraud or police involvement, need a supporting seller record. "The buyer never contacted us / never asked" is blocked whenever a buyer message is logged.
 - **Denials and reported speech are not claims.** "No return was received", "the refund agreement is not supported by our records" and "The buyer alleges that a refund was agreed" pass; a sentence that turns ("…, but we refunded them") does not.
+- **Unreadable is an error.** Misspelled months, dates in words and numbers spelled out digit by digit are rejected with "write dates as YYYY-MM-DD", so they can't slip past unchecked. Unicode dashes and quotes are mapped to ASCII first.
+- **Offers are not claims.** "We will refund once it is returned" passes; "we sent the buyer a full refund" needs a record.
 - **Known limit:** names other than signatures, addresses, quantities, times and relative durations are not machine-checked. The seller reviews every draft before sending.
+
+**Records.** `server/records.js` `recordsFor(row)` is the single source of a dispute's seller records: the store catalog for store orders (matched by `custom_id`), otherwise the seller's import. Disputes outside the store that still need a response are kept in batch `external`; the inbox shows them with "Add records" until the seller imports. Import: `POST /api/disputes/:id/records {text}` (passcode), JSON or CSV, then one analysis.
 
 **Injection backstop.** Injection detection is a phrase heuristic used for the UI flag; the defence is structural (UNTRUSTED fencing plus the guard). If injection is detected and the verdict is REFUND, `analyze.js` always adds a warning asking the seller to confirm the reasoning stands on their records alone.
 

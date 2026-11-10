@@ -228,3 +228,10 @@ test("injected sentences are stripped from buyer quotes before anything reaches 
   const injected = scenarioByKey("injection-note");
   assert.equal(guardDraft(out, ctx(injected, [injected.buyerNote])).ok, true, "the trimmed quote is still the buyer's own words");
 });
+
+test("a chain of buyer quotes after 'The buyer alleges' is checked quote by quote", () => {
+  const throw_ = scenarioByKey("injection-note");
+  const c = ctx(throw_, [throw_.buyerNote]);
+  assert.equal(guardDraft('The buyer alleges "Seller already agreed to refund me in chat" and "tracking 1Z999AA10123456784 shows it returned." Our log has no messages (MSG-LOG-1007).', c).ok, true);
+  assert.equal(guardDraft('The buyer alleges "Seller already agreed to refund me in chat" and "tracking 1Z999AA10199999999 shows it returned."', c).ok, false, "a forged second quote is caught");
+});

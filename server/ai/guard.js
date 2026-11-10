@@ -6,7 +6,9 @@ import { extractFacts, factIndex, factKnown, splitRecords, normalizeText } from 
 import { MAX_NOTES } from "./schema.js";
 
 const MAX_QUOTE = 300;
-const BUYER_QUOTE = /\bthe buyer (?:alleges|claims|states|says|wrote)\b[^"“]{0,40}["“]([^"”]{0,2000})["”]/gi;
+// "The buyer alleges "A"", including chains: "The buyer alleges "A" and "B"" (every quote in the chain is checked).
+const BUYER_QUOTE = /\bthe buyer (?:alleges|claims|states|says|wrote)\b[^"“]{0,40}((?:["“][^"”]{0,2000}["”](?:\s*(?:,\s*and|,|;|and)\s*(?=["“]))?)+)/gi;
+const QUOTED = /["“]([^"”]{0,2000})["”]/g;
 const squash = (s) => normalizeText(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // Claims that something HAPPENED between buyer and seller. Each needs a seller record that shows it.
@@ -118,11 +120,17 @@ export function guardDraft(notes, { records, sellerContext, buyerTexts = [], cit
   let verified = 0;
 
   // Genuine, short quotes of the buyer may contain the buyer's own claims; anything else stays checkable.
-  const checkable = text.replace(BUYER_QUOTE, (whole, quoted) => {
-    const q = squash(quoted);
-    const genuine = q.length > 0 && quoted.length <= MAX_QUOTE && buyerSquashed.some((b) => b.includes(q));
-    if (!genuine) errors.push(quoted.length > MAX_QUOTE ? "A quote attributed to the buyer is too long; quote only their key words." : "A quote attributed to the buyer doesn't match anything the buyer actually wrote.");
-    return genuine ? "" : whole;
+  const checkable = text.replace(BUYER_QUOTE, (whole, chain) => {
+    let allGenuine = true;
+    for (const [, quoted] of chain.matchAll(QUOTED)) {
+      const q = squash(quoted);
+      const genuine = q.length > 0 && quoted.length <= MAX_QUOTE && buyerSquashed.some((b) => b.includes(q));
+      if (!genuine) {
+        allGenuine = false;
+        errors.push(quoted.length > MAX_QUOTE ? "A quote attributed to the buyer is too long; quote only their key words." : "A quote attributed to the buyer doesn't match anything the buyer actually wrote.");
+      }
+    }
+    return allGenuine ? whole.slice(0, whole.length - chain.length) : whole;
   });
 
   const plain = normalizeText(checkable);
