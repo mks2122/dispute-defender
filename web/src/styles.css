@@ -31,34 +31,7 @@
   --sidebar: 232px;
   color-scheme: light;
 }
-/* Dark: follows the system unless the seller picked a theme (data-theme on <html>, set by the toggle). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #09090b;
-    --panel: #111113;
-    --subtle: #18181b;
-    --muted-bg: #27272a;
-    --line: #27272a;
-    --line-soft: #1c1c1f;
-    --text: #fafafa;
-    --text-2: #a1a1aa;
-    --text-3: #71717a;
-    --strong: #fafafa;
-    --on-strong: #09090b;
-    --chart: #d4d4d8;
-    --chart-2: #3f3f46;
-    --accent: #60a5fa;
-    --accent-soft: rgba(96, 165, 250, 0.16);
-    --warn: #fbbf24;
-    --warn-bg: rgba(251, 191, 36, 0.08);
-    --error: #f87171;
-    --error-bg: rgba(248, 113, 113, 0.08);
-    --scrim: rgba(0, 0, 0, 0.6);
-    --shadow: none;
-    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
-    color-scheme: dark;
-  }
-}
+/* Dark only when the seller picks it with the toggle (data-theme on <html>); light is the default. */
 :root[data-theme="dark"] {
   --bg: #09090b;
   --panel: #111113;

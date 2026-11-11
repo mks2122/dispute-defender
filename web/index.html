@@ -6,7 +6,7 @@
     <title>Dispute Defender</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
-      // Apply a saved light/dark choice before first paint (no flash). Storage can be blocked: then follow the system.
+      // Apply a saved dark choice before first paint (no flash). Light is the default, including when storage is blocked.
       try { var t = localStorage.getItem("dd-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />

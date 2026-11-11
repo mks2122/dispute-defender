@@ -1,31 +1,18 @@
-// Light/dark theme. Follows the system until the seller picks one; the choice is remembered per browser.
+// Light/dark theme. Light is the default; the seller's choice from the toggle is remembered per browser.
 // index.html applies the saved choice before first paint, so this hook only keeps React in step with it.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 const KEY = "dd-theme";
-const query = () => window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
 const savedChoice = () => {
   try {
-    const t = localStorage.getItem(KEY);
-    return t === "light" || t === "dark" ? t : null;
+    return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
   } catch {
-    return null; // storage blocked (private mode, policies): follow the system
+    return "light"; // storage blocked (private mode, policies): light
   }
 };
 
 export function useTheme() {
-  const [choice, setChoice] = useState(savedChoice);
-  const [systemDark, setSystemDark] = useState(() => query()?.matches ?? false);
-
-  useEffect(() => {
-    const mq = query();
-    if (!mq) return undefined;
-    const onChange = (e) => setSystemDark(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-
-  const theme = choice ?? (systemDark ? "dark" : "light");
+  const [theme, setTheme] = useState(savedChoice);
   const toggle = useCallback(() => {
     const next = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
@@ -34,7 +21,7 @@ export function useTheme() {
     } catch {
       // storage blocked: the choice lasts for this visit only
     }
-    setChoice(next);
+    setTheme(next);
   }, [theme]);
 
   return { theme, toggle };

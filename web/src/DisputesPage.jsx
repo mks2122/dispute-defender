@@ -6,7 +6,7 @@ import { Icon, Status, Thumb, money, signedMoney, dueLabel, verdictWord, bandWor
 // Registered here (not in main.jsx) so AG Grid stays out of the first page load.
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-// Neutral grid theme driven by the app's CSS variables (light and dark follow the system).
+// Neutral grid theme driven by the app's CSS variables (light by default, dark when the seller picks it).
 const theme = themeQuartz.withParams({
   fontFamily: "inherit",
   fontSize: 13,
